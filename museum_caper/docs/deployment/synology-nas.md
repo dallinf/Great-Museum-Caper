@@ -185,6 +185,27 @@ PHX_URL_PORT=4040
 PHX_CHECK_ORIGIN=http://192.168.86.41:4040,http://dallinfrandsen.duckdns.org:4040
 ```
 
+For an existing Synology deployment, edit the NAS `.env` directly:
+
+```sh
+cd /volume1/docker/museum-caper
+sudo cp .env .env.bak-origins
+
+sudo sed -i 's/^PHX_HOST=.*/PHX_HOST=dallinfrandsen.duckdns.org/' .env
+sudo sed -i 's/^HOST_PORT=.*/HOST_PORT=4040/' .env
+sudo sed -i 's/^PHX_URL_SCHEME=.*/PHX_URL_SCHEME=http/' .env
+sudo sed -i 's/^PHX_URL_PORT=.*/PHX_URL_PORT=4040/' .env
+sudo sed -i 's|^PHX_CHECK_ORIGIN=.*|PHX_CHECK_ORIGIN=http://192.168.86.41:4040,http://dallinfrandsen.duckdns.org:4040|' .env
+
+sudo docker compose --env-file .env up -d
+```
+
+If your Synology uses the legacy Compose command, use this final restart command instead:
+
+```sh
+sudo docker-compose --env-file .env up -d
+```
+
 ## HTTPS with Synology Reverse Proxy
 
 For a polished private setup, put Synology's reverse proxy in front of the container.
