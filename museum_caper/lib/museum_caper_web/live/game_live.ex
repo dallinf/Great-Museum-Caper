@@ -253,11 +253,11 @@ defmodule MuseumCaperWeb.GameLive do
     <Layouts.app flash={@flash} back_to_lobby_event="return_to_lobby">
       <div
         id="game-shell"
-        class="h-[calc(100dvh-4rem)] overflow-hidden bg-stone-950 text-stone-100"
+        class="min-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto bg-stone-950 text-stone-100 lg:h-[calc(100dvh-4rem)] lg:overflow-hidden"
       >
         <div
           id="game-layout"
-          class="grid h-full min-h-0 gap-4 overflow-hidden p-3 lg:grid-cols-[19rem_minmax(0,1fr)] lg:p-5"
+          class="grid min-h-0 gap-4 overflow-visible p-3 lg:h-full lg:grid-cols-[19rem_minmax(0,1fr)] lg:overflow-hidden lg:p-5"
         >
           <aside
             id="game-sidebar"
@@ -411,7 +411,7 @@ defmodule MuseumCaperWeb.GameLive do
 
           <main
             id="game-board-panel"
-            class="min-h-0 min-w-0 overflow-hidden rounded-lg border border-stone-700 bg-stone-900 p-3 shadow-2xl shadow-black/30 lg:p-5"
+            class="min-h-0 min-w-0 overflow-visible rounded-lg border border-stone-700 bg-stone-900 p-3 shadow-2xl shadow-black/30 lg:overflow-hidden lg:p-5"
           >
             <div
               id="museum-board"

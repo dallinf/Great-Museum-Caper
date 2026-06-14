@@ -108,7 +108,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert has_element?(alice_view, "#museum-board")
   end
 
-  test "game screen contains overflow below the header", %{conn: conn, game_id: game_id} do
+  test "game screen allows mobile scroll below the header", %{conn: conn, game_id: game_id} do
     {:ok, _pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: %{})
 
     {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
@@ -119,10 +119,14 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert has_element?(alice_view, "#app-header > div.h-full")
     assert has_element?(alice_view, "#app-main[data-layout='header-offset']")
     refute has_element?(alice_view, "#app-main.min-h-screen")
-    assert has_element?(alice_view, "#game-shell.overflow-hidden")
-    assert has_element?(alice_view, "#game-layout.overflow-hidden")
+    assert has_element?(alice_view, "#game-shell.overflow-y-auto[class*='lg:overflow-hidden']")
+    assert has_element?(alice_view, "#game-layout.overflow-visible[class*='lg:overflow-hidden']")
     assert has_element?(alice_view, "#game-sidebar.overflow-y-auto")
-    assert has_element?(alice_view, "#game-board-panel.overflow-hidden")
+
+    assert has_element?(
+             alice_view,
+             "#game-board-panel.overflow-visible[class*='lg:overflow-hidden']"
+           )
   end
 
   test "game header links back to the lobby", %{conn: conn, game_id: game_id} do
