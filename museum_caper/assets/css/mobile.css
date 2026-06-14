@@ -1,0 +1,34 @@
+@media (max-width: 768px) {
+  .game-layout {
+    flex-direction: column;
+    padding: 0.5rem;
+    gap: 0.5rem;
+  }
+
+  .info-panel {
+    width: 100%;
+    order: 1;
+  }
+
+  .board-panel {
+    order: 2;
+    width: 100%;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y pinch-zoom;
+  }
+
+  .board-grid {
+    width: min(calc(100vw - 1rem), calc(95vmin * 1.57));
+  }
+
+  .controls {
+    order: 3;
+    width: 100%;
+  }
+
+  .board-cell {
+    min-height: 36px;
+    min-width: 36px;
+  }
+}

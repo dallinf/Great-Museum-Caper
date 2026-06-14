@@ -1,0 +1,75 @@
+/* Board container */
+.game-layout {
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+  padding: 1rem;
+  min-height: 100vh;
+}
+
+.info-panel {
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.board-panel {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+}
+
+/* Board grid */
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+  gap: 1px;
+  background: #333;
+  border: 2px solid #333;
+  width: min(calc(100vw - 260px), calc(80vh * 1.57));
+  aspect-ratio: 11 / 7;
+}
+
+.board-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(8px, 1.5vw, 14px);
+  cursor: default;
+  min-height: 44px;
+  min-width: 44px;
+  user-select: none;
+}
+
+/* Room colors */
+.room-gallery_red    { background: #ffcccc; }
+.room-gallery_green  { background: #ccffcc; }
+.room-gallery_yellow { background: #ffffcc; }
+.room-gallery_blue   { background: #cce5ff; }
+.room-gallery_violet { background: #e5ccff; }
+.room-grey_room      { background: #e0e0e0; }
+.corridor            { background: #f5f0e8; }
+.power-room          { background: #fff3cd; border: 2px solid #ffc107; }
+.wall                { background: #555; }
+
+/* Valid move highlight */
+.board-cell.valid-dest {
+  cursor: pointer;
+  box-shadow: inset 0 0 0 3px #2563eb;
+  background-color: rgba(37, 99, 235, 0.15) !important;
+}
+
+.board-cell.valid-dest:hover {
+  background-color: rgba(37, 99, 235, 0.3) !important;
+}
+
+/* Paintings, cameras, pawns */
+.painting-icon { font-size: 1em; }
+.camera-icon   { font-size: 0.75em; }
+.pawn          { font-size: 1.2em; position: absolute; }
+.thief-pawn    { color: #333; }
+.detective-pawn { color: #e74c3c; }
+
+.board-cell.has-painting { outline: 2px dashed #8b4513; }

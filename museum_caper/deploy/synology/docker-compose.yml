@@ -1,0 +1,14 @@
+name: museum-caper
+
+services:
+  web:
+    image: ${IMAGE_NAME:-museum-caper}:${TAG:-latest}
+    container_name: museum-caper
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PHX_SERVER: "true"
+      PORT: "4000"
+    ports:
+      - "${HOST_PORT:-4000}:4000"
