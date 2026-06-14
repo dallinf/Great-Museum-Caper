@@ -7,6 +7,7 @@ TAG="${TAG:-$(date +%Y%m%d-%H%M%S)}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 PHX_HOST="${PHX_HOST:-museum-caper.local}"
 HOST_PORT="${HOST_PORT:-4000}"
+PHX_CHECK_ORIGIN="${PHX_CHECK_ORIGIN:-http://${PHX_HOST}:${HOST_PORT}}"
 PHX_FORCE_SSL="${PHX_FORCE_SSL:-false}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/deploy/synology/dist}"
 
@@ -54,6 +55,7 @@ HOST_PORT=${HOST_PORT}
 PHX_HOST=${PHX_HOST}
 PHX_URL_SCHEME=http
 PHX_URL_PORT=${HOST_PORT}
+PHX_CHECK_ORIGIN=${PHX_CHECK_ORIGIN}
 PHX_SERVER=true
 PORT=4000
 SECRET_KEY_BASE=${secret_key_base}

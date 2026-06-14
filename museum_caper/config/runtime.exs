@@ -40,9 +40,15 @@ if config_env() == :prod do
   url_scheme = System.get_env("PHX_URL_SCHEME", "https")
   url_port = String.to_integer(System.get_env("PHX_URL_PORT", "443"))
 
+  check_origin =
+    System.get_env("PHX_CHECK_ORIGIN", "")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+
   config :museum_caper, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  config :museum_caper, MuseumCaperWeb.Endpoint,
+  endpoint_config = [
     url: [host: host, port: url_port, scheme: url_scheme],
     http: [
       # Enable IPv6 and bind on all interfaces.
@@ -52,6 +58,16 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
     secret_key_base: secret_key_base
+  ]
+
+  endpoint_config =
+    if check_origin == [] do
+      endpoint_config
+    else
+      Keyword.put(endpoint_config, :check_origin, check_origin)
+    end
+
+  config :museum_caper, MuseumCaperWeb.Endpoint, endpoint_config
 
   # ## SSL Support
   #

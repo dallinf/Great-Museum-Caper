@@ -162,6 +162,7 @@ HOST_PORT=4000
 PHX_HOST=192.168.1.50
 PHX_URL_SCHEME=http
 PHX_URL_PORT=4000
+PHX_CHECK_ORIGIN=http://192.168.1.50:4000
 PHX_SERVER=true
 PORT=4000
 SECRET_KEY_BASE=<generated secret>
@@ -173,6 +174,16 @@ Important values:
 - `PHX_HOST`: the host/IP users type into the browser.
 - `HOST_PORT`: the NAS port exposed to your LAN.
 - `PHX_URL_SCHEME` and `PHX_URL_PORT`: use `http`/`4000` for direct LAN access.
+- `PHX_CHECK_ORIGIN`: comma-separated browser origins allowed to connect LiveView.
+
+If you want both a LAN URL and a DuckDNS URL to work, set `PHX_HOST` to the canonical public hostname and list both origins:
+
+```dotenv
+PHX_HOST=dallinfrandsen.duckdns.org
+PHX_URL_SCHEME=http
+PHX_URL_PORT=4040
+PHX_CHECK_ORIGIN=http://192.168.86.41:4040,http://dallinfrandsen.duckdns.org:4040
+```
 
 ## HTTPS with Synology Reverse Proxy
 
@@ -195,6 +206,7 @@ For a polished private setup, put Synology's reverse proxy in front of the conta
    PHX_HOST=museum-caper.your-domain
    PHX_URL_SCHEME=https
    PHX_URL_PORT=443
+   PHX_CHECK_ORIGIN=https://museum-caper.your-domain
    ```
 
 5. Deploy as usual.
