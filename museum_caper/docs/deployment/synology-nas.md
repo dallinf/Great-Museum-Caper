@@ -4,9 +4,9 @@ This guide deploys Museum Caper as a private Phoenix release container on a Syno
 
 The fastest path is:
 
-1. Build a Docker image locally.
-2. Copy the image and Compose project to the NAS.
-3. Run it with Synology Container Manager or over SSH.
+1. Build a Docker image locally or directly on the NAS.
+2. Put the Compose project in `/volume1/docker/museum-caper`.
+3. Run it with Synology Container Manager or Docker Compose.
 
 Museum Caper currently stores lobby and game state in memory. Restarting the container clears active rooms and games. That is fine for a local/private prototype, but it is not durable hosting.
 
@@ -149,6 +149,101 @@ Use this if you do not want to enable SSH.
 
    ```txt
    http://192.168.1.50:4000
+   ```
+
+## Option C: Build Directly on the NAS
+
+Use this if you are already SSH'd into the NAS or working from a terminal on the NAS. Do not run `scripts/synology-deploy-ssh.sh` in this path; that script is only for deploying from another computer to the NAS.
+
+1. Install Synology Container Manager from Package Center if it is not installed yet.
+
+2. Make sure Docker and Buildx work on the NAS:
+
+   ```sh
+   docker --version
+   docker buildx version
+   ```
+
+   If `docker buildx version` fails, install the Buildx CLI plugin first. The short version is:
+
+   ```sh
+   VERSION=v0.34.1
+
+   case "$(uname -m)" in
+     x86_64) BUILDX_ARCH=amd64 ;;
+     aarch64|arm64) BUILDX_ARCH=arm64 ;;
+     armv7l) BUILDX_ARCH=arm-v7 ;;
+     *) echo "Unsupported arch: $(uname -m)" && exit 1 ;;
+   esac
+
+   sudo mkdir -p /usr/local/lib/docker/cli-plugins
+   sudo curl -fL \
+     "https://github.com/docker/buildx/releases/download/${VERSION}/buildx-${VERSION}.linux-${BUILDX_ARCH}" \
+     -o /usr/local/lib/docker/cli-plugins/docker-buildx
+   sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+
+   docker buildx version
+   ```
+
+3. Go to the project checkout on the NAS:
+
+   ```sh
+   cd ~/Projects/Great-Museum-Caper
+   git pull
+   ```
+
+4. Confirm the NAS architecture:
+
+   ```sh
+   uname -m
+   ```
+
+   Use `PLATFORM=linux/amd64` for `x86_64`, or `PLATFORM=linux/arm64` for `aarch64`/ARM64.
+
+5. Build the image on the NAS. Replace the host, port, and origins with the URLs you actually use:
+
+   ```sh
+   PLATFORM=linux/amd64 \
+   PHX_HOST=dallinfrandsen.duckdns.org \
+   HOST_PORT=4040 \
+   PHX_CHECK_ORIGIN=http://192.168.86.41:4040,http://dallinfrandsen.duckdns.org:4040 \
+   scripts/synology-build-image.sh
+   ```
+
+   The build script creates `deploy/synology/dist/.env` and `deploy/synology/dist/docker-compose.yml`. It also loads the built image into the NAS Docker daemon.
+
+6. Copy the generated Compose project into Synology's Docker folder:
+
+   ```sh
+   sudo mkdir -p /volume1/docker/museum-caper
+   sudo cp deploy/synology/dist/docker-compose.yml /volume1/docker/museum-caper/
+   sudo cp deploy/synology/dist/.env /volume1/docker/museum-caper/
+   ```
+
+7. Start or update the container:
+
+   ```sh
+   cd /volume1/docker/museum-caper
+   sudo docker compose --env-file .env up -d
+   ```
+
+   If your Synology uses the legacy Compose command, use:
+
+   ```sh
+   sudo docker-compose --env-file .env up -d
+   ```
+
+8. Check logs:
+
+   ```sh
+   sudo docker logs --tail=100 museum-caper
+   ```
+
+9. Open the app:
+
+   ```txt
+   http://192.168.86.41:4040
+   http://dallinfrandsen.duckdns.org:4040
    ```
 
 ## Environment Variables
