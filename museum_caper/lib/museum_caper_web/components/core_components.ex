@@ -29,6 +29,7 @@ defmodule MuseumCaperWeb.CoreComponents do
   use Phoenix.Component
   use Gettext, backend: MuseumCaperWeb.Gettext
 
+  alias MuseumCaper.Game.PawnColors
   alias Phoenix.LiveView.JS
 
   @doc """
@@ -284,7 +285,8 @@ defmodule MuseumCaperWeb.CoreComponents do
           id={@id}
           value={Phoenix.HTML.Form.normalize_value(@type, @value)}
           class={[
-            @class || "w-full input",
+            @class ||
+              "w-full input bg-stone-50 text-stone-950 caret-stone-950 placeholder:text-stone-500",
             @errors != [] && (@error_class || "input-error")
           ]}
           {@rest}
@@ -292,6 +294,67 @@ defmodule MuseumCaperWeb.CoreComponents do
       </label>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
+    """
+  end
+
+  attr :field, Phoenix.HTML.FormField, required: true
+  attr :id_prefix, :string, required: true
+  attr :label, :string, default: "Pawn color"
+  attr :taken_colors, :list, default: []
+
+  def pawn_color_picker(assigns) do
+    assigns =
+      assigns
+      |> assign(:colors, PawnColors.all())
+      |> assign(:taken_color_params, taken_color_params(assigns.taken_colors))
+
+    ~H"""
+    <fieldset class="space-y-2">
+      <legend class="text-sm font-semibold text-stone-200">{@label}</legend>
+      <div class="grid grid-cols-6 gap-2">
+        <%= for color <- @colors do %>
+          <% value = PawnColors.to_param(color) %>
+          <% input_id = "#{@id_prefix}-input-#{value}" %>
+          <% taken? = MapSet.member?(@taken_color_params, value) %>
+          <label
+            id={"#{@id_prefix}-#{value}"}
+            for={input_id}
+            data-pawn-color={value}
+            data-pawn-color-status={if(taken?, do: "taken", else: "available")}
+            title={pawn_color_title(color, taken?)}
+            aria-disabled={taken?}
+            class={[
+              "group grid place-items-center rounded-md border p-1.5 transition",
+              if(taken?,
+                do: "cursor-not-allowed border-stone-800 bg-stone-950/40 opacity-45 grayscale",
+                else:
+                  "cursor-pointer border-stone-700 bg-stone-950/70 hover:border-stone-500 has-checked:border-amber-200 has-checked:bg-amber-200/10"
+              )
+            ]}
+          >
+            <input
+              id={input_id}
+              type="radio"
+              name={@field.name}
+              value={value}
+              checked={pawn_color_checked?(@field.value, color)}
+              disabled={taken?}
+              class="sr-only"
+            />
+            <span
+              data-pawn-swatch={value}
+              class={[
+                "block size-5 rounded-full border-2 shadow-sm transition",
+                pawn_color_swatch_class(color),
+                taken? && "opacity-60"
+              ]}
+            >
+            </span>
+            <span class="sr-only">{PawnColors.label(color)}{if(taken?, do: " taken", else: "")}</span>
+          </label>
+        <% end %>
+      </div>
+    </fieldset>
     """
   end
 
@@ -495,4 +558,38 @@ defmodule MuseumCaperWeb.CoreComponents do
   def translate_errors(errors, field) when is_list(errors) do
     for {^field, {msg, opts}} <- errors, do: translate_error({msg, opts})
   end
+
+  defp pawn_color_checked?(value, color), do: value == PawnColors.to_param(color)
+
+  defp taken_color_params(colors) do
+    colors
+    |> Enum.flat_map(fn color ->
+      case PawnColors.normalize(color) do
+        {:ok, nil} -> []
+        {:ok, normalized} -> [PawnColors.to_param(normalized)]
+        {:error, :invalid_color} -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp pawn_color_title(color, true), do: "#{PawnColors.label(color)} is already taken"
+  defp pawn_color_title(color, false), do: PawnColors.label(color)
+
+  defp pawn_color_swatch_class(:purple),
+    do: "border-purple-200 bg-purple-500 shadow-purple-950/40"
+
+  defp pawn_color_swatch_class(:green),
+    do: "border-green-200 bg-green-500 shadow-green-950/40"
+
+  defp pawn_color_swatch_class(:blue),
+    do: "border-blue-200 bg-blue-500 shadow-blue-950/40"
+
+  defp pawn_color_swatch_class(:white),
+    do: "border-stone-300 bg-stone-50 shadow-stone-950/40"
+
+  defp pawn_color_swatch_class(:red), do: "border-red-200 bg-red-500 shadow-red-950/40"
+
+  defp pawn_color_swatch_class(:yellow),
+    do: "border-yellow-100 bg-yellow-300 shadow-yellow-950/40"
 end
