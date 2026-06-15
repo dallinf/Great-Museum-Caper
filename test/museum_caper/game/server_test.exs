@@ -59,6 +59,35 @@ defmodule MuseumCaper.Game.ServerTest do
     assert state.turn_order == ["alice", "bob"]
   end
 
+  test "players can choose an available pawn color when joining" do
+    game_id = "join-color-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+
+    state = Server.get_state(pid)
+    assert state.players["alice"].color == :purple
+  end
+
+  test "players cannot choose a pawn color already taken in the lobby" do
+    game_id = "duplicate-color-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert {:error, :color_taken} = Server.add_player(pid, "bob", "Bob", :purple)
+
+    state = Server.get_state(pid)
+    refute Map.has_key?(state.players, "bob")
+  end
+
+  test "players cannot choose a pawn color outside the allowed set" do
+    game_id = "invalid-color-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert {:error, :invalid_color} = Server.add_player(pid, "alice", "Alice", :orange)
+    assert Server.get_state(pid).players == %{}
+  end
+
   test "empty lobby game requires two players before starting" do
     game_id = "empty-#{System.unique_integer()}"
     {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
@@ -93,6 +122,23 @@ defmodule MuseumCaper.Game.ServerTest do
     assert state.players["alice"].role == :detective
     assert state.players["bob"].role == :detective
     assert state.turn_order == ["bob", "cora", "alice", "cora"]
+  end
+
+  test "start_game preserves detective pawn colors and assigns gray to the thief" do
+    game_id = "lobby-colors-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert :ok = Server.add_player(pid, "bob", "Bob", :green)
+    assert :ok = Server.add_player(pid, "cora", "Cora", :yellow)
+
+    assert {:ok, state} = Server.start_game(pid, "alice", shuffle: &Enum.reverse/1)
+    assert state.players["cora"].role == :thief
+    assert state.players["cora"].color == :grey
+    assert state.players["bob"].role == :detective
+    assert state.players["bob"].color == :green
+    assert state.players["alice"].role == :detective
+    assert state.players["alice"].color == :purple
   end
 
   test "start_game preserves the original lobby host" do

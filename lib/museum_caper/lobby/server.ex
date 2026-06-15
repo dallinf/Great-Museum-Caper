@@ -64,6 +64,7 @@ defmodule MuseumCaper.Lobby.Server do
         created_at: DateTime.utc_now(),
         created_order: System.unique_integer([:monotonic, :positive]),
         player_count: 1,
+        players: %{},
         phase: :lobby
       }
 
@@ -108,11 +109,12 @@ defmodule MuseumCaper.Lobby.Server do
         {:reply, :ok, state}
 
       {name, room} ->
-        updated = %{
-          room
-          | player_count: map_size(game_state.players),
+        updated =
+          Map.merge(room, %{
+            player_count: map_size(game_state.players),
+            players: game_state.players,
             phase: game_state.phase
-        }
+          })
 
         :ets.insert(@table, {name, updated})
         broadcast_lobby()

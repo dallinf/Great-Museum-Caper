@@ -153,32 +153,19 @@ defmodule MuseumCaper.Game.Rules do
 
   # --- Thief Movement ---
 
-  def valid_thief_destinations(state, max_steps \\ 3) do
+  def valid_thief_destinations(state, max_steps \\ nil) do
     detective_cells =
       state.detective_positions |> Map.values() |> Enum.reject(&is_nil/1) |> MapSet.new()
 
-    explore(
-      [state.thief_position],
-      max_steps,
-      MapSet.new([state.thief_position])
-    )
+    origin = movement_origin(state, state.thief_position)
+    step_limit = movement_limit(3, max_steps)
+
+    bfs_distances(origin, step_limit, MapSet.new())
+    |> Map.keys()
+    |> MapSet.new()
     |> MapSet.delete(state.thief_position)
     |> MapSet.difference(detective_cells)
     |> MapSet.to_list()
-  end
-
-  defp explore([], _remaining, visited), do: visited
-  defp explore(_frontier, 0, visited), do: visited
-
-  defp explore(frontier, remaining, visited) do
-    new_cells =
-      frontier
-      |> Enum.flat_map(&Board.neighbors/1)
-      |> Enum.reject(&MapSet.member?(visited, &1))
-      |> Enum.uniq()
-
-    new_visited = Enum.reduce(new_cells, visited, &MapSet.put(&2, &1))
-    explore(new_cells, remaining - 1, new_visited)
   end
 
   def move_thief(state, destination) do
@@ -186,7 +173,7 @@ defmodule MuseumCaper.Game.Rules do
       valid = valid_thief_destinations(state)
 
       if destination in valid do
-        state = %{state | thief_position: destination, turn_actions_remaining: []}
+        state = move_player(state, :thief, state.thief_player_id, destination, 3, MapSet.new())
         state = resolve_thief_landing(state)
         {:ok, state}
       else
@@ -249,6 +236,7 @@ defmodule MuseumCaper.Game.Rules do
   def valid_detective_destinations(state, detective_id) do
     {max_steps, _} = state.dice
     pos = state.detective_positions[detective_id]
+    origin = movement_origin(state, pos)
 
     detective_cells =
       state.detective_positions
@@ -256,7 +244,9 @@ defmodule MuseumCaper.Game.Rules do
       |> Enum.map(fn {_id, detective_pos} -> detective_pos end)
       |> MapSet.new()
 
-    bfs_destinations(pos, max_steps, blocking_painting_cells(state))
+    bfs_distances(origin, max_steps, blocking_painting_cells(state))
+    |> Map.keys()
+    |> MapSet.new()
     |> MapSet.delete(pos)
     |> MapSet.difference(detective_cells)
     |> MapSet.to_list()
@@ -279,17 +269,19 @@ defmodule MuseumCaper.Game.Rules do
     end
   end
 
-  defp bfs_destinations(start, max_steps, blocked) do
-    Enum.reduce(1..max_steps, {[start], MapSet.new([start])}, fn _, {frontier, visited} ->
+  defp bfs_distances(start, max_steps, _blocked) when max_steps <= 0, do: %{start => 0}
+
+  defp bfs_distances(start, max_steps, blocked) do
+    Enum.reduce(1..max_steps, {[start], %{start => 0}}, fn step, {frontier, distances} ->
       new_cells =
         frontier
         |> Enum.flat_map(&Board.neighbors/1)
-        |> Enum.reject(&MapSet.member?(visited, &1))
+        |> Enum.reject(&Map.has_key?(distances, &1))
         |> Enum.reject(&MapSet.member?(blocked, &1))
         |> Enum.uniq()
 
-      new_visited = Enum.reduce(new_cells, visited, &MapSet.put(&2, &1))
-      {new_cells, new_visited}
+      new_distances = Enum.reduce(new_cells, distances, &Map.put(&2, &1, step))
+      {new_cells, new_distances}
     end)
     |> elem(1)
   end
@@ -299,22 +291,17 @@ defmodule MuseumCaper.Game.Rules do
       valid = valid_detective_destinations(state, detective_id)
 
       if destination in valid do
-        det_positions = Map.put(state.detective_positions, detective_id, destination)
-
-        state = %{
-          state
-          | detective_positions: det_positions,
-            turn_actions_remaining: List.delete(state.turn_actions_remaining, :move)
-        }
-
         state =
-          if destination == state.thief_position do
-            %{state | phase: :game_over, winner: :detectives, game_over_reason: :caught}
-          else
-            check_detective_power_room(state, destination)
-          end
+          move_player(
+            state,
+            :detective,
+            detective_id,
+            destination,
+            elem(state.dice, 0),
+            blocking_painting_cells(state)
+          )
 
-        {:ok, state}
+        {:ok, check_detective_power_room(state, destination)}
       else
         {:error, :invalid_move}
       end
@@ -330,6 +317,46 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp check_detective_power_room(state, _), do: state
+
+  defp move_player(state, role, player_id, destination, allowance, blocked) do
+    current = player_position(state, role, player_id)
+    origin = movement_origin(state, current)
+
+    state =
+      if destination == origin do
+        %{state | movement_path: [], movement_spent: 0}
+      else
+        distance =
+          origin
+          |> bfs_distances(movement_limit(allowance), blocked)
+          |> Map.fetch!(destination)
+
+        %{state | movement_path: [origin, destination], movement_spent: distance}
+      end
+
+    put_player_position(state, role, player_id, destination)
+  end
+
+  defp player_position(state, :thief, _player_id), do: state.thief_position
+  defp player_position(state, :detective, player_id), do: state.detective_positions[player_id]
+
+  defp put_player_position(state, :thief, _player_id, destination) do
+    %{state | thief_position: destination}
+  end
+
+  defp put_player_position(state, :detective, player_id, destination) do
+    %{state | detective_positions: Map.put(state.detective_positions, player_id, destination)}
+  end
+
+  defp movement_origin(%{movement_path: [origin | _path]}, _current), do: origin
+  defp movement_origin(%{movement_path: []}, current), do: current
+
+  defp movement_limit(allowance, max_steps \\ nil) do
+    case max_steps do
+      nil -> allowance
+      max_steps -> min(allowance, max_steps)
+    end
+  end
 
   # --- Dice ---
 
@@ -352,7 +379,7 @@ defmodule MuseumCaper.Game.Rules do
              %{state | phase: :game_over, winner: :thief, game_over_reason: :escaped}}
 
           :locked ->
-            {:ok, :locked, %{state | detective_result: {:escape_locked, exit_id}}}
+            {:ok, :locked, put_detective_result(state, {:escape_locked, exit_id})}
         end
       else
         {:error, :not_adjacent}
@@ -365,11 +392,30 @@ defmodule MuseumCaper.Game.Rules do
   # --- Turn Advancement ---
 
   def end_turn(state) do
-    if :move in state.turn_actions_remaining do
-      {:error, :movement_required}
-    else
-      {:ok, advance_turn(state)}
+    cond do
+      :move in state.turn_actions_remaining and not movement_made?(state) ->
+        {:error, :movement_required}
+
+      detective_caught_thief?(state) ->
+        {:ok, catch_thief(state)}
+
+      true ->
+        {:ok, advance_turn(state)}
     end
+  end
+
+  defp detective_caught_thief?(state) do
+    case Map.get(state.players, state.current_turn) do
+      %{role: :detective} ->
+        Map.get(state.detective_positions, state.current_turn) == state.thief_position
+
+      _player ->
+        false
+    end
+  end
+
+  defp catch_thief(state) do
+    %{state | phase: :game_over, winner: :detectives, game_over_reason: :caught}
   end
 
   def advance_turn(state) do
@@ -386,7 +432,9 @@ defmodule MuseumCaper.Game.Rules do
         current_turn: next_player,
         turn_actions_remaining: actions,
         dice: dice,
-        motion_detector_decision: nil
+        motion_detector_decision: nil,
+        movement_path: [],
+        movement_spent: 0
     }
   end
 
@@ -404,6 +452,8 @@ defmodule MuseumCaper.Game.Rules do
         {[:move, :look], roll_dice()}
     end
   end
+
+  defp movement_made?(state), do: state.movement_path != [] and state.movement_spent > 0
 
   defp roll_number_die, do: Enum.random(1..6)
 
@@ -478,7 +528,7 @@ defmodule MuseumCaper.Game.Rules do
     if Board.can_see?(pos, state.thief_position) do
       {:ok, :chase_triggered, spot_thief(state, {:look_pawn, :chase_triggered})}
     else
-      {:ok, :no_sighting, %{state | detective_result: {:look_pawn, :no_sighting}}}
+      {:ok, :no_sighting, put_detective_result(state, {:look_pawn, :no_sighting})}
     end
   end
 
@@ -487,34 +537,32 @@ defmodule MuseumCaper.Game.Rules do
 
     if not state.power_active do
       {:ok, :power_off,
-       %{state | power_revealed: true, detective_result: {:look_camera, :power_off}}}
+       state
+       |> Map.put(:power_revealed, true)
+       |> put_detective_result({:look_camera, :power_off})}
     else
       cam = state.cameras[camera_id]
 
       cond do
         cam == nil ->
-          state = %{
-            state
-            | detective_result: {:look_camera, :camera_disabled}
-          }
+          state = put_detective_result(state, {:look_camera, :camera_disabled})
 
           {:ok, :camera_disabled, state}
 
         cam.status == :disabled ->
-          state = %{
+          state =
             state
-            | cameras: Map.put(state.cameras, camera_id, Map.put(cam, :revealed, true)),
-              detective_result: {:look_camera, :camera_disabled}
-          }
+            |> Map.put(:cameras, Map.put(state.cameras, camera_id, Map.put(cam, :revealed, true)))
+            |> put_detective_result({:look_camera, :camera_disabled})
 
           {:ok, :camera_disabled, state}
 
         Board.can_see?(cam.pos, state.thief_position) ->
           result = {:sighting, camera_id}
-          {:ok, result, %{state | detective_result: {:look_camera, result}}}
+          {:ok, result, put_detective_result(state, {:look_camera, result})}
 
         true ->
-          {:ok, :no_sighting, %{state | detective_result: {:look_camera, :no_sighting}}}
+          {:ok, :no_sighting, put_detective_result(state, {:look_camera, :no_sighting})}
       end
     end
   end
@@ -524,7 +572,9 @@ defmodule MuseumCaper.Game.Rules do
 
     if not state.power_active do
       {:ok, :power_off,
-       %{state | power_revealed: true, detective_result: {:camera_scan, :power_off}}}
+       state
+       |> Map.put(:power_revealed, true)
+       |> put_detective_result({:camera_scan, :power_off})}
     else
       {disabled, active} =
         Enum.split_with(state.cameras, fn {_, v} -> v != nil and v.status == :disabled end)
@@ -553,17 +603,20 @@ defmodule MuseumCaper.Game.Rules do
         result = {:sighting, sighting_camera_ids}
 
         {:ok, disabled_ids, result,
-         %{state | detective_result: {:camera_scan, disabled_ids, result}}}
+         put_detective_result(state, {:camera_scan, disabled_ids, result})}
       else
         {:ok, disabled_ids, :no_sighting,
-         %{state | detective_result: {:camera_scan, disabled_ids, :no_sighting}}}
+         put_detective_result(state, {:camera_scan, disabled_ids, :no_sighting})}
       end
     end
   end
 
   defp spot_thief(state, detective_result) do
     state = reveal_pending_steal_on_spot(state)
-    %{state | chase_mode: true, detective_result: detective_result}
+
+    state
+    |> Map.put(:chase_mode, true)
+    |> put_detective_result(detective_result)
   end
 
   defp reveal_pending_steal_on_spot(%{pending_steal: pos, thief_position: pos} = state) do
@@ -571,6 +624,10 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp reveal_pending_steal_on_spot(state), do: state
+
+  defp put_detective_result(state, result) do
+    %{state | detective_result: result, detective_result_id: state.detective_result_id + 1}
+  end
 
   def decide_motion_detector(state, player_id, decision) do
     cond do
@@ -582,16 +639,19 @@ defmodule MuseumCaper.Game.Rules do
 
       decision == :allow ->
         {:ok, :allowed,
-         %{state | motion_detector_decision: :allowed, detective_result: {:motion, :allowed}}}
+         state
+         |> Map.put(:motion_detector_decision, :allowed)
+         |> put_detective_result({:motion, :allowed})}
 
       decision == :cut ->
-        state = %{
-          state
-          | motion_snips_remaining: state.motion_snips_remaining - 1,
-            motion_detector_decision: nil,
-            turn_actions_remaining: List.delete(state.turn_actions_remaining, :look),
-            detective_result: {:motion, :snipped}
-        }
+        state =
+          %{
+            state
+            | motion_snips_remaining: state.motion_snips_remaining - 1,
+              motion_detector_decision: nil,
+              turn_actions_remaining: List.delete(state.turn_actions_remaining, :look)
+          }
+          |> put_detective_result({:motion, :snipped})
 
         {:ok, :snipped, state}
 
@@ -613,17 +673,17 @@ defmodule MuseumCaper.Game.Rules do
 
     if not state.power_active do
       {:ok, :power_off,
-       %{
-         state
-         | power_revealed: true,
-           motion_detector_decision: nil,
-           detective_result: {:motion, :power_off}
-       }}
+       state
+       |> Map.put(:power_revealed, true)
+       |> Map.put(:motion_detector_decision, nil)
+       |> put_detective_result({:motion, :power_off})}
     else
       color = motion_detector_color(state.thief_position)
 
       {:ok, {:color, color},
-       %{state | motion_detector_decision: nil, detective_result: {:motion, {:color, color}}}}
+       state
+       |> Map.put(:motion_detector_decision, nil)
+       |> put_detective_result({:motion, {:color, color}})}
     end
   end
 

@@ -24,32 +24,18 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/museum_caper"
 import topbar from "../vendor/topbar"
+import BoardRevealHook from "./hooks/board_reveal_hook"
 import BoardHook from "./hooks/board_hook"
 import ToastHook from "./hooks/toast_hook"
+import TurnBannerHook from "./hooks/turn_banner_hook"
+import WakeLockHook from "./hooks/wake_lock_hook"
 
 let Hooks = {}
+Hooks.BoardRevealHook = BoardRevealHook
 Hooks.BoardHook = BoardHook
 Hooks.ToastHook = ToastHook
-
-const setTheme = (theme) => {
-  if (theme === "system") {
-    localStorage.removeItem("phx:theme")
-    document.documentElement.removeAttribute("data-theme")
-  } else {
-    localStorage.setItem("phx:theme", theme)
-    document.documentElement.setAttribute("data-theme", theme)
-  }
-}
-
-if (!document.documentElement.hasAttribute("data-theme")) {
-  setTheme(localStorage.getItem("phx:theme") || "system")
-}
-
-window.addEventListener("storage", (event) => {
-  if (event.key === "phx:theme") setTheme(event.newValue || "system")
-})
-
-window.addEventListener("phx:set-theme", (event) => setTheme(event.target.dataset.phxTheme))
+Hooks.TurnBannerHook = TurnBannerHook
+Hooks.WakeLockHook = WakeLockHook
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {

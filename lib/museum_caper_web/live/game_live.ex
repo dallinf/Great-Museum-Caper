@@ -1,7 +1,7 @@
 defmodule MuseumCaperWeb.GameLive do
   use MuseumCaperWeb, :live_view
   alias MuseumCaper.Lobby.Server, as: LobbyServer
-  alias MuseumCaper.Game.{Board, Rules, Server}
+  alias MuseumCaper.Game.{Board, PawnColors, Rules, Server}
 
   @impl true
   def mount(%{"game_id" => game_id} = params, _session, socket) do
@@ -11,8 +11,11 @@ defmodule MuseumCaperWeb.GameLive do
 
       [{_pid, _}] ->
         player_name = params |> Map.get("player_name", "") |> String.trim()
+        player_color = Map.get(params, "player_color")
         server = {:via, Registry, {MuseumCaper.GameRegistry, game_id}}
         player_id = player_id_for(player_name, socket.id)
+        game_state = Server.get_state(server)
+        join_form_player_color = available_join_pawn_color(game_state, player_id, player_color)
 
         socket =
           socket
@@ -21,11 +24,24 @@ defmodule MuseumCaperWeb.GameLive do
             server: server,
             player_id: player_id,
             player_name: player_name,
+            player_color: player_color,
             notification: nil,
+            notification_id: nil,
+            log_toast: nil,
+            log_toast_key: nil,
             pending_escape_entry: nil,
-            join_form: to_form(%{"player_name" => player_name}, as: :player)
+            turn_banner_key: nil,
+            revealed_mark_keys: [],
+            join_form:
+              to_form(
+                %{
+                  "player_name" => player_name,
+                  "player_color" => join_form_player_color
+                },
+                as: :player
+              )
           )
-          |> maybe_join_game(player_name)
+          |> maybe_join_game(player_name, player_color)
 
         game_state = Server.get_state(server)
 
@@ -38,11 +54,25 @@ defmodule MuseumCaperWeb.GameLive do
 
   @impl true
   def handle_info({:state_changed, game_state}, socket) do
-    {:noreply, assign(socket, game_state: game_state)}
+    previous_state = socket.assigns.game_state
+    previous_turn = banner_turn_player(previous_state)
+    revealed_mark_keys = next_revealed_mark_keys(socket, previous_state, game_state)
+
+    socket =
+      socket
+      |> assign(
+        game_state: game_state,
+        revealed_mark_keys: revealed_mark_keys
+      )
+      |> assign_log_toast(previous_state, game_state)
+      |> maybe_show_turn_banner(previous_turn, game_state)
+
+    {:noreply, socket}
   end
 
   @impl true
-  def handle_event("join_game", %{"player" => %{"player_name" => player_name}}, socket) do
+  def handle_event("join_game", %{"player" => player_params}, socket) do
+    player_name = Map.get(player_params, "player_name", "")
     player_name = String.trim(player_name)
 
     if player_name == "" do
@@ -50,14 +80,21 @@ defmodule MuseumCaperWeb.GameLive do
     else
       player_id = player_id_for(player_name, socket.id)
 
+      player_color =
+        player_params
+        |> Map.get("player_color")
+        |> requested_or_default_pawn_color(socket.assigns.game_state, player_id)
+
       socket =
         socket
         |> assign(
           player_id: player_id,
           player_name: player_name,
-          join_form: to_form(%{"player_name" => player_name}, as: :player)
+          player_color: player_color,
+          join_form:
+            to_form(%{"player_name" => player_name, "player_color" => player_color}, as: :player)
         )
-        |> join_current_player(player_name)
+        |> join_current_player(player_name, player_color)
 
       {:noreply, socket}
     end
@@ -250,18 +287,24 @@ defmodule MuseumCaperWeb.GameLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} back_to_lobby_event="return_to_lobby">
+    <Layouts.app
+      flash={@flash}
+      back_to_lobby_event="return_to_lobby"
+      compact={true}
+      game_log={@game_state.game_log}
+      recent_result={latest_detective_result(@game_state, @player_id)}
+    >
       <div
         id="game-shell"
-        class="min-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto bg-stone-950 text-stone-100 lg:h-[calc(100dvh-4rem)] lg:overflow-hidden"
+        class="h-dvh overflow-hidden bg-stone-950 text-stone-100"
       >
         <div
           id="game-layout"
-          class="grid min-h-0 gap-4 overflow-visible p-3 lg:h-full lg:grid-cols-[19rem_minmax(0,1fr)] lg:overflow-hidden lg:p-5"
+          class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden p-2 lg:grid-cols-[19rem_minmax(0,1fr)] lg:grid-rows-1 lg:gap-4 lg:p-5"
         >
           <aside
             id="game-sidebar"
-            class="min-h-0 space-y-3 overflow-y-auto rounded-lg border border-stone-700 bg-stone-900/95 p-4 shadow-2xl shadow-black/30"
+            class="order-last min-h-0 space-y-3 overflow-y-auto rounded-lg border border-stone-700 bg-stone-900/95 p-3 shadow-2xl shadow-black/30 lg:order-none lg:p-4"
           >
             <div class="flex items-start justify-between gap-3">
               <div>
@@ -279,6 +322,11 @@ defmodule MuseumCaperWeb.GameLive do
               <div id="join-panel" class="rounded-lg border border-amber-300/30 bg-amber-200/10 p-3">
                 <.form for={@join_form} id="join-game-form" phx-submit="join_game" class="space-y-3">
                   <.input field={@join_form[:player_name]} type="text" label="Your name" />
+                  <.pawn_color_picker
+                    field={@join_form[:player_color]}
+                    id_prefix="join-player-color"
+                    taken_colors={taken_pawn_colors(@game_state, @player_id)}
+                  />
                   <button
                     id="join-game-button"
                     type="submit"
@@ -316,7 +364,19 @@ defmodule MuseumCaperWeb.GameLive do
                         else: "border-stone-700 bg-stone-800/80"
                       )
                     ]}>
-                      <span class="min-w-0 truncate font-semibold">{player.name}</span>
+                      <span class="flex min-w-0 items-center gap-2">
+                        <span
+                          data-player-color={player_color_status(player.color)}
+                          class={[
+                            "block size-3.5 shrink-0 rounded-full border-2",
+                            pawn_color_class(player.color)
+                          ]}
+                        >
+                        </span>
+                        <span data-player-name class="min-w-0 truncate font-semibold">
+                          {player.name}
+                        </span>
+                      </span>
                       <span class="shrink-0 rounded bg-stone-950/80 px-2 py-1 text-[0.68rem] font-bold uppercase tracking-wide text-stone-300">
                         {player.role}
                       </span>
@@ -326,24 +386,6 @@ defmodule MuseumCaperWeb.GameLive do
               <% end %>
             </section>
 
-            <%= if @notification do %>
-              <div
-                id="game-notification"
-                class="rounded-lg border border-amber-300/50 bg-amber-300/15 p-3 text-sm text-amber-100"
-              >
-                {@notification}
-              </div>
-            <% end %>
-
-            <%= if detective_result_visible?(@game_state, @player_id) do %>
-              <div
-                id="detective-result-panel"
-                class="rounded-lg border border-sky-300/50 bg-sky-300/15 p-3 text-sm text-sky-100"
-              >
-                {detective_result_message(@game_state.detective_result)}
-              </div>
-            <% end %>
-
             <%= if power_status_visible?(@game_state, @player_id) do %>
               <div
                 id="power-status"
@@ -351,20 +393,6 @@ defmodule MuseumCaperWeb.GameLive do
               >
                 Power off
               </div>
-            <% end %>
-
-            <%= if @game_state.game_log != [] do %>
-              <section
-                id="game-log"
-                class="space-y-2 rounded-lg border border-stone-700 bg-stone-800 p-3"
-              >
-                <h2 class="text-sm font-black uppercase tracking-[0.18em] text-stone-200">Log</h2>
-                <ul class="space-y-1 text-sm text-stone-300">
-                  <%= for {entry, index} <- Enum.with_index(@game_state.game_log) do %>
-                    <li id={"game-log-entry-#{index}"}>{entry}</li>
-                  <% end %>
-                </ul>
-              </section>
             <% end %>
 
             <%= case @game_state.phase do %>
@@ -377,13 +405,23 @@ defmodule MuseumCaperWeb.GameLive do
                     Open this room in another browser tab or private window, join as a second player, then start.
                   </p>
                   <%= if host?(@game_state, @player_id) do %>
+                    <% start_enabled? = start_game_enabled?(@game_state) %>
                     <button
                       id="start-game-button"
                       type="button"
                       phx-click="start_game"
-                      class="inline-flex w-full items-center justify-center gap-2 rounded-md bg-emerald-400 px-3 py-2 text-sm font-black text-stone-950 transition hover:bg-emerald-300"
+                      disabled={!start_enabled?}
+                      class={[
+                        "inline-flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-black transition",
+                        if(start_enabled?,
+                          do: "bg-emerald-400 text-stone-950 hover:bg-emerald-300",
+                          else:
+                            "cursor-not-allowed border border-stone-600 bg-stone-700 text-stone-400"
+                        )
+                      ]}
                     >
-                      <.icon name="hero-play-solid" class="size-4" /> Start game
+                      <.icon name="hero-play-solid" class="size-4" />
+                      {if(start_enabled?, do: "Start game", else: "Waiting for players")}
                     </button>
                   <% else %>
                     <p
@@ -411,11 +449,11 @@ defmodule MuseumCaperWeb.GameLive do
 
           <main
             id="game-board-panel"
-            class="min-h-0 min-w-0 overflow-visible rounded-lg border border-stone-700 bg-stone-900 p-3 shadow-2xl shadow-black/30 lg:overflow-hidden lg:p-5"
+            class="order-first flex min-h-0 min-w-0 items-start justify-center overflow-hidden rounded-lg border border-stone-700 bg-stone-900 p-2 shadow-2xl shadow-black/30 lg:order-none lg:items-center lg:p-5"
           >
             <div
               id="museum-board"
-              class="grid w-full max-w-[min(100%,calc((100dvh-9.5rem)*1.09))] grid-cols-12 overflow-hidden rounded-md border-4 border-stone-700 bg-stone-800"
+              class="grid aspect-[12/11] w-full max-w-[min(100%,calc((100dvh-10rem)*1.09))] grid-cols-12 overflow-hidden rounded-md border-4 border-stone-700 bg-stone-800 lg:max-w-[min(100%,calc((100dvh-3rem)*1.09))]"
             >
               <%= for row <- 1..11, col <- 1..12 do %>
                 <% pos = {row, col} %>
@@ -431,7 +469,7 @@ defmodule MuseumCaperWeb.GameLive do
                     phx-value-row={row}
                     phx-value-col={col}
                     class={[
-                      "relative aspect-square min-h-10 border text-[0.62rem] font-black transition",
+                      "relative aspect-square min-h-0 border text-[0.62rem] font-black transition",
                       cell_surface_class(cell, pos),
                       if(clickable_cell?(@game_state, @player_id, pos),
                         do: "cursor-pointer ring-2 ring-inset ring-amber-300 hover:brightness-110",
@@ -447,10 +485,6 @@ defmodule MuseumCaperWeb.GameLive do
                       >
                         <.icon name="hero-bolt-solid" class="size-5 text-black" />
                       </span>
-                    <% else %>
-                      <span class={cell_label_class(cell)}>
-                        {cell_label(cell)}
-                      </span>
                     <% end %>
                     <%= if Board.external_door_cell?(pos) do %>
                       <.external_door_inset />
@@ -461,17 +495,10 @@ defmodule MuseumCaperWeb.GameLive do
                     <%= for mark <- lock_marks(@game_state, @player_id, pos) do %>
                       <span data-board-mark="lock" class={lock_mark_class()}>{mark}</span>
                     <% end %>
-                    <span class="relative z-10 flex h-full w-full flex-wrap items-center justify-center gap-0.5 p-1">
-                      <%= for mark <- cell_marks(@game_state, @player_id, pos) do %>
-                        <span
-                          data-board-mark={mark_kind(mark)}
-                          data-mark-status={mark_status(mark)}
-                          class={mark_class(mark)}
-                        >
-                          {mark_label(mark)}
-                        </span>
-                      <% end %>
-                    </span>
+                    <.board_mark_stack
+                      marks={cell_marks(@game_state, @player_id, pos)}
+                      revealed_mark_keys={@revealed_mark_keys}
+                    />
                   </button>
                 <% else %>
                   <%= if Board.external_door_cell?(pos) do %>
@@ -483,7 +510,7 @@ defmodule MuseumCaperWeb.GameLive do
                       phx-value-row={row}
                       phx-value-col={col}
                       class={[
-                        "relative grid aspect-square min-h-10 place-items-center border border-stone-800 bg-stone-700",
+                        "relative grid aspect-square min-h-0 place-items-center border border-stone-800 bg-stone-700",
                         external_door_open_edge_class(pos),
                         if(clickable_cell?(@game_state, @player_id, pos),
                           do: "cursor-pointer ring-2 ring-inset ring-amber-300 hover:brightness-110",
@@ -500,26 +527,80 @@ defmodule MuseumCaperWeb.GameLive do
                       <%= for mark <- lock_marks(@game_state, @player_id, pos) do %>
                         <span data-board-mark="lock" class={lock_mark_class()}>{mark}</span>
                       <% end %>
-                      <span class="relative z-10 flex h-full w-full flex-wrap items-center justify-center gap-0.5 p-1">
-                        <%= for mark <- cell_marks(@game_state, @player_id, pos) do %>
-                          <span
-                            data-board-mark={mark_kind(mark)}
-                            data-mark-status={mark_status(mark)}
-                            class={mark_class(mark)}
-                          >
-                            {mark_label(mark)}
-                          </span>
-                        <% end %>
-                      </span>
+                      <.board_mark_stack
+                        marks={cell_marks(@game_state, @player_id, pos)}
+                        revealed_mark_keys={@revealed_mark_keys}
+                      />
                     </button>
                   <% else %>
-                    <div class="aspect-square min-h-10 bg-stone-950"></div>
+                    <div class="aspect-square min-h-0 bg-stone-950"></div>
                   <% end %>
                 <% end %>
               <% end %>
             </div>
           </main>
         </div>
+        <% latest_result = latest_detective_result(@game_state, @player_id) %>
+        <% latest_result_key = latest_detective_result_key(@game_state) %>
+        <%= if @notification || latest_result || @log_toast do %>
+          <div
+            id="game-toast-stack"
+            class="pointer-events-none fixed inset-x-3 bottom-3 z-40 flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:w-96 md:bottom-6 md:right-6 md:w-[28rem] md:gap-3 lg:w-[32rem]"
+          >
+            <%= if @notification do %>
+              <div
+                id="game-notification"
+                phx-hook="ToastHook"
+                data-toast-key={"notice:#{@notification_id}"}
+                role="status"
+                class="translate-y-2 rounded-lg border border-amber-300/50 bg-stone-950/95 p-3 text-sm font-semibold text-amber-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-4 md:text-base lg:p-5 lg:text-lg"
+              >
+                {@notification}
+              </div>
+            <% end %>
+            <%= if latest_result do %>
+              <div
+                id="game-result-toast"
+                phx-hook="ToastHook"
+                data-toast-key={"result:#{latest_result_key}"}
+                role="status"
+                class="translate-y-2 rounded-lg border border-sky-300/40 bg-stone-950/95 p-3 text-sm text-sky-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-4 md:text-base lg:p-5 lg:text-lg"
+              >
+                <span class="block font-semibold">{latest_result}</span>
+              </div>
+            <% end %>
+            <%= if @log_toast do %>
+              <div
+                id="game-log-toast"
+                phx-hook="ToastHook"
+                data-toast-key={"log:#{@game_id}:#{@log_toast_key}"}
+                role="status"
+                class="translate-y-2 rounded-lg border border-sky-300/40 bg-stone-950/95 p-3 text-sm text-sky-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-4 md:text-base lg:p-5 lg:text-lg"
+              >
+                <span class="block font-semibold">{@log_toast}</span>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+        <%= if @turn_banner_key do %>
+          <div
+            id="turn-banner"
+            phx-hook="TurnBannerHook"
+            data-turn-banner-key={@turn_banner_key}
+            data-turn-banner-duration="3000"
+            role="status"
+            aria-live="assertive"
+            class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center px-4"
+          >
+            <div
+              data-turn-banner-panel
+              data-turn-banner-size="massive"
+              class="max-w-full translate-y-4 scale-95 rounded-lg border-4 border-amber-200 bg-stone-950/90 px-6 py-5 text-center text-[clamp(3rem,18vw,10rem)] font-black uppercase leading-none tracking-normal text-amber-100 opacity-0 shadow-2xl shadow-amber-950/50 backdrop-blur-sm transition-[opacity,transform] duration-200 sm:px-10 sm:py-7"
+            >
+              Your Turn
+            </div>
+          </div>
+        <% end %>
       </div>
     </Layouts.app>
     """
@@ -607,6 +688,7 @@ defmodule MuseumCaperWeb.GameLive do
       <.motion_decision_buttons game_state={@game_state} player_id={@player_id} />
 
       <%= if my_turn?(@game_state, @player_id) do %>
+        <% can_end_turn? = turn_can_end?(@game_state) %>
         <div class="space-y-2">
           <p class="text-xs uppercase tracking-[0.16em] text-stone-400">
             Actions: {Enum.join(@game_state.turn_actions_remaining, ", ")}
@@ -621,9 +703,17 @@ defmodule MuseumCaperWeb.GameLive do
             id="end-turn-button"
             type="button"
             phx-click="end_turn"
-            class="w-full rounded-md border border-stone-500 px-3 py-2 text-sm font-bold text-stone-100 transition hover:border-stone-300 hover:bg-stone-700"
+            disabled={!can_end_turn?}
+            class={[
+              "w-full rounded-md border px-3 py-2 text-sm font-bold transition",
+              if(can_end_turn?,
+                do:
+                  "border-amber-200 bg-amber-300 text-stone-950 shadow-lg shadow-amber-950/30 hover:border-amber-100 hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200",
+                else: "cursor-not-allowed border-stone-700 bg-stone-900 text-stone-500"
+              )
+            ]}
           >
-            End turn
+            {if(can_end_turn?, do: "End turn", else: "Move first")}
           </button>
         </div>
       <% else %>
@@ -687,7 +777,7 @@ defmodule MuseumCaperWeb.GameLive do
             Look from pawn
           </button>
           <div class="grid grid-cols-2 gap-2">
-            <%= for {camera_id, camera} <- @game_state.cameras, camera != nil do %>
+            <%= for {camera_id, camera} <- selectable_look_cameras(@game_state, @player_id) do %>
               <button
                 id={"look-camera-#{camera_id}"}
                 type="button"
@@ -729,6 +819,13 @@ defmodule MuseumCaperWeb.GameLive do
       <% end %>
     <% end %>
     """
+  end
+
+  defp selectable_look_cameras(state, player_id) do
+    state.cameras
+    |> Enum.filter(fn {_camera_id, camera} ->
+      camera != nil and visible_camera_status(state, player_id, camera) == :active
+    end)
   end
 
   attr :game_state, :map, required: true
@@ -779,12 +876,12 @@ defmodule MuseumCaperWeb.GameLive do
     """
   end
 
-  defp maybe_join_game(socket, player_name) do
+  defp maybe_join_game(socket, player_name, player_color) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(MuseumCaper.PubSub, "game:#{socket.assigns.game_id}")
 
       if player_name != "" do
-        join_current_player(socket, player_name)
+        join_current_player(socket, player_name, player_color)
       else
         socket
       end
@@ -806,11 +903,63 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
-  defp join_current_player(socket, player_name) do
-    case Server.add_player(socket.assigns.server, socket.assigns.player_id, player_name) do
+  defp available_join_pawn_color(state, player_id, requested_color) do
+    case PawnColors.normalize(requested_color) do
+      {:ok, nil} ->
+        default_pawn_color(state, player_id)
+
+      {:ok, color} ->
+        if pawn_color_taken?(state, player_id, color) do
+          default_pawn_color(state, player_id)
+        else
+          PawnColors.to_param(color)
+        end
+
+      {:error, :invalid_color} ->
+        requested_color
+    end
+  end
+
+  defp requested_or_default_pawn_color(requested_color, state, player_id) do
+    case PawnColors.normalize(requested_color) do
+      {:ok, nil} -> default_pawn_color(state, player_id)
+      _result -> requested_color
+    end
+  end
+
+  defp default_pawn_color(state, player_id) do
+    state.players
+    |> Map.delete(player_id)
+    |> PawnColors.next_available()
+    |> case do
+      nil -> PawnColors.default()
+      color -> color
+    end
+    |> PawnColors.to_param()
+  end
+
+  defp pawn_color_taken?(state, player_id, color) do
+    Enum.any?(state.players, fn {id, player} -> id != player_id and player.color == color end)
+  end
+
+  defp taken_pawn_colors(state, player_id) do
+    state.players
+    |> Enum.reject(fn {id, _player} -> id == player_id end)
+    |> Enum.map(fn {_id, player} -> player.color end)
+  end
+
+  defp join_current_player(socket, player_name, player_color) do
+    case Server.add_player(
+           socket.assigns.server,
+           socket.assigns.player_id,
+           player_name,
+           player_color
+         ) do
       :ok -> refresh_state(socket, nil)
       {:error, :room_full} -> put_notice(socket, "This room already has four players.")
       {:error, :game_started} -> put_notice(socket, "This game has already started.")
+      {:error, :color_taken} -> put_notice(socket, "That pawn color is already taken.")
+      {:error, :invalid_color} -> put_notice(socket, "Choose a valid pawn color.")
     end
   end
 
@@ -864,18 +1013,22 @@ defmodule MuseumCaperWeb.GameLive do
   defp handle_playing_board_click(socket, pos) do
     state = socket.assigns.game_state
 
-    case escape_entry_for_cell(state, socket.assigns.player_id, pos) do
-      %{id: entry_id} ->
-        {:noreply, assign(socket, pending_escape_entry: entry_id, notification: nil)}
+    if current_space_before_move?(state, socket.assigns.player_id, pos) do
+      {:noreply, put_notice(socket, "Choose a different space.")}
+    else
+      case escape_entry_for_cell(state, socket.assigns.player_id, pos) do
+        %{id: entry_id} ->
+          {:noreply, assign(socket, pending_escape_entry: entry_id, notification: nil)}
 
-      nil ->
-        case movement_escape_entry_for_cell(state, socket.assigns.player_id, pos) do
-          %{id: entry_id, adj_cell: adj_cell} ->
-            handle_movement_escape_click(socket, adj_cell, entry_id)
+        nil ->
+          case movement_escape_entry_for_cell(state, socket.assigns.player_id, pos) do
+            %{id: entry_id, adj_cell: adj_cell} ->
+              handle_movement_escape_click(socket, adj_cell, entry_id)
 
-          nil ->
-            handle_move_click(socket, pos)
-        end
+            nil ->
+              handle_move_click(socket, pos)
+          end
+      end
     end
   end
 
@@ -936,7 +1089,7 @@ defmodule MuseumCaperWeb.GameLive do
             pending_window_escape_after_move(state, socket.assigns.player_id, pos)
 
           socket = assign(socket, :pending_escape_entry, pending_escape_entry)
-          {:noreply, refresh_state(socket, "Move recorded.")}
+          {:noreply, refresh_state(socket, nil)}
 
         {:error, :invalid_move} ->
           {:noreply, put_notice(socket, "That move is not legal.")}
@@ -951,7 +1104,7 @@ defmodule MuseumCaperWeb.GameLive do
     case Server.move_thief(socket.assigns.server, adj_cell) do
       {:ok, _state} ->
         socket = assign(socket, pending_escape_entry: entry_id, notification: nil)
-        {:noreply, refresh_state(socket, "Move recorded.")}
+        {:noreply, refresh_state(socket, nil)}
 
       {:error, :invalid_move} ->
         {:noreply, put_notice(socket, "That move is not legal.")}
@@ -980,10 +1133,139 @@ defmodule MuseumCaperWeb.GameLive do
   end
 
   defp refresh_state(socket, message) do
-    assign(socket, game_state: Server.get_state(socket.assigns.server), notification: message)
+    previous_state = Map.get(socket.assigns, :game_state)
+    game_state = Server.get_state(socket.assigns.server)
+    previous_turn = assigned_banner_turn(previous_state, game_state)
+
+    socket
+    |> assign(
+      game_state: game_state,
+      revealed_mark_keys: revealed_mark_keys(previous_state, game_state, socket.assigns.player_id)
+    )
+    |> assign_log_toast(previous_state, game_state)
+    |> maybe_show_turn_banner(previous_turn, game_state)
+    |> put_notification(notification_message(message, game_state))
   end
 
-  defp put_notice(socket, message), do: assign(socket, notification: message)
+  defp assign_log_toast(socket, previous_state, game_state) do
+    {log_toast, log_toast_key} = next_log_toast(socket, previous_state, game_state)
+    assign(socket, log_toast: log_toast, log_toast_key: log_toast_key)
+  end
+
+  defp next_log_toast(socket, previous_state, game_state) do
+    cond do
+      previous_state == game_state ->
+        {socket.assigns.log_toast, socket.assigns.log_toast_key}
+
+      new_log_entry?(previous_state, game_state) ->
+        {List.last(game_state.game_log), length(game_state.game_log)}
+
+      true ->
+        {nil, nil}
+    end
+  end
+
+  defp new_log_entry?(nil, _game_state), do: false
+
+  defp new_log_entry?(previous_state, game_state) do
+    length(game_state.game_log) > length(previous_state.game_log)
+  end
+
+  defp maybe_show_turn_banner(socket, previous_turn, game_state) do
+    current_turn = banner_turn_player(game_state)
+    player_id = socket.assigns.player_id
+
+    cond do
+      current_turn == player_id and current_turn != previous_turn and
+          Map.has_key?(game_state.players, player_id) ->
+        assign(socket, :turn_banner_key, System.unique_integer([:positive]))
+
+      current_turn != player_id ->
+        assign(socket, :turn_banner_key, nil)
+
+      true ->
+        socket
+    end
+  end
+
+  defp assigned_banner_turn(previous_state, fallback_state) do
+    case previous_state do
+      nil -> banner_turn_player(fallback_state)
+      state -> banner_turn_player(state)
+    end
+  end
+
+  defp banner_turn_player(%{phase: :thief_entry, thief_player_id: thief_id}), do: thief_id
+  defp banner_turn_player(%{current_turn: current_turn}), do: current_turn
+
+  defp revealed_mark_keys(nil, _game_state, _player_id), do: []
+
+  defp revealed_mark_keys(previous_state, game_state, player_id) do
+    if player_role(game_state, player_id) == :detective do
+      painting_reveal_keys(previous_state, game_state, player_id) ++
+        camera_reveal_keys(previous_state, game_state, player_id)
+    else
+      []
+    end
+  end
+
+  defp next_revealed_mark_keys(socket, previous_state, game_state) do
+    if previous_state == game_state do
+      socket.assigns.revealed_mark_keys
+    else
+      revealed_mark_keys(previous_state, game_state, socket.assigns.player_id)
+    end
+  end
+
+  defp painting_reveal_keys(previous_state, game_state, player_id) do
+    game_state.paintings
+    |> Enum.filter(fn {pos, status} ->
+      status == :removed and visible_painting_status(previous_state, player_id, pos) != :removed
+    end)
+    |> Enum.map(fn {pos, _status} ->
+      mark_reveal_key({:painting, painting_label(game_state, pos), :removed})
+    end)
+  end
+
+  defp camera_reveal_keys(previous_state, game_state, player_id) do
+    game_state.cameras
+    |> Enum.filter(fn {camera_id, camera} ->
+      camera != nil and visible_camera_status(game_state, player_id, camera) == :disabled and
+        visible_camera_status_for_id(previous_state, player_id, camera_id) != :disabled
+    end)
+    |> Enum.map(fn {camera_id, _camera} -> mark_reveal_key({:camera, camera_id, :disabled}) end)
+  end
+
+  defp visible_painting_status(state, player_id, pos) do
+    case Map.get(state.paintings, pos) do
+      :targeted ->
+        if player_role(state, player_id) == :thief, do: :targeted, else: :present
+
+      status ->
+        status
+    end
+  end
+
+  defp visible_camera_status_for_id(state, player_id, camera_id) do
+    case Map.get(state.cameras, camera_id) do
+      nil -> nil
+      camera -> visible_camera_status(state, player_id, camera)
+    end
+  end
+
+  defp put_notice(socket, message), do: put_notification(socket, message)
+
+  defp put_notification(socket, nil), do: assign(socket, notification: nil, notification_id: nil)
+
+  defp put_notification(socket, message) do
+    assign(socket, notification: message, notification_id: System.unique_integer([:positive]))
+  end
+
+  defp notification_message(nil, _state), do: nil
+
+  defp notification_message(message, state) do
+    if latest_detective_result(state) == message, do: nil, else: message
+  end
 
   defp pending_window_escape_after_move(state, player_id, pos) do
     if player_role(state, player_id) == :thief do
@@ -1038,6 +1320,8 @@ defmodule MuseumCaperWeb.GameLive do
   defp host?(%{phase: :lobby, turn_order: [host_id | _]}, player_id), do: host_id == player_id
   defp host?(_state, _player_id), do: false
 
+  defp start_game_enabled?(state), do: map_size(state.players) >= 2
+
   defp host_leaving_open_game?(%{phase: :game_over}, _player_id), do: false
 
   defp host_leaving_open_game?(state, player_id), do: state.host_player_id == player_id
@@ -1049,9 +1333,15 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
-  defp detective_result_visible?(state, player_id) do
-    Map.has_key?(state.players, player_id) and state.detective_result != nil
+  defp latest_detective_result(state, player_id) do
+    if Map.has_key?(state.players, player_id), do: latest_detective_result(state)
   end
+
+  defp latest_detective_result(%{detective_result: nil}), do: nil
+  defp latest_detective_result(%{detective_result: result}), do: detective_result_message(result)
+
+  defp latest_detective_result_key(%{detective_result: nil}), do: nil
+  defp latest_detective_result_key(%{detective_result_id: result_id}), do: result_id
 
   defp power_status_visible?(state, player_id) do
     player_role(state, player_id) == :detective and not state.power_active and
@@ -1161,10 +1451,10 @@ defmodule MuseumCaperWeb.GameLive do
   defp setup_instruction(%{setup_step: :cameras}), do: "Place 4 cameras anywhere occupiable."
   defp setup_instruction(%{setup_step: :pawns}), do: "Place your detective pawn."
 
-  defp setup_success_message(:locks), do: "Lock placement updated."
-  defp setup_success_message(:paintings), do: "Artwork placed."
-  defp setup_success_message(:cameras), do: "Camera placed."
-  defp setup_success_message(:pawns), do: "Detective placed."
+  defp setup_success_message(:locks), do: nil
+  defp setup_success_message(:paintings), do: nil
+  defp setup_success_message(:cameras), do: nil
+  defp setup_success_message(:pawns), do: nil
 
   defp setup_error_message(:too_many_locks), do: "All locks are already placed."
   defp setup_error_message(:cell_occupied), do: "That cell is already occupied."
@@ -1197,9 +1487,10 @@ defmodule MuseumCaperWeb.GameLive do
         player_role(state, player_id) == :thief and Board.entries_for_cell(pos) != []
 
       state.phase == :playing and state.current_turn == player_id ->
-        pos in valid_destinations(state, player_id) or
-          escape_entry_for_cell(state, player_id, pos) != nil or
-          movement_escape_entry_for_cell(state, player_id, pos) != nil
+        not current_space_before_move?(state, player_id, pos) and
+          (pos in valid_destinations(state, player_id) or
+             escape_entry_for_cell(state, player_id, pos) != nil or
+             movement_escape_entry_for_cell(state, player_id, pos) != nil)
 
       true ->
         false
@@ -1284,6 +1575,23 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
+  defp current_space_before_move?(state, player_id, pos) do
+    turn_needs_move?(state) and current_player_position(state, player_id) == pos
+  end
+
+  defp turn_can_end?(state), do: not turn_needs_move?(state)
+
+  defp turn_needs_move?(state),
+    do: :move in state.turn_actions_remaining and state.movement_spent == 0
+
+  defp current_player_position(state, player_id) do
+    case player_role(state, player_id) do
+      :thief -> state.thief_position
+      :detective -> Map.get(state.detective_positions, player_id)
+      _ -> nil
+    end
+  end
+
   defp board_feature(pos) do
     cond do
       Board.window_cell?(pos) -> "window"
@@ -1341,17 +1649,6 @@ defmodule MuseumCaperWeb.GameLive do
   defp gray_cell_class, do: "bg-stone-300 text-stone-950"
   defp utility_cell_class, do: "bg-stone-200 text-stone-950"
 
-  defp cell_label_class(_cell),
-    do: "absolute left-1 top-1 text-[0.55rem] font-bold uppercase opacity-45"
-
-  defp cell_label(%{type: :corridor}), do: ""
-  defp cell_label(%{room_id: room_id}) when room_id in [:other_left, :other_right], do: ""
-
-  defp cell_label(%{room_id: room_id}),
-    do: room_id |> Atom.to_string() |> String.replace("gallery_", "") |> String.first()
-
-  defp cell_label(_), do: ""
-
   defp power_cell?(%{type: :power_room}), do: true
   defp power_cell?(_cell), do: false
 
@@ -1387,6 +1684,88 @@ defmodule MuseumCaperWeb.GameLive do
       camera_marks(state, player_id, pos) ++
       detective_marks(state, pos) ++
       thief_marks(state, player_id, pos)
+  end
+
+  defp board_mark_stack(assigns) do
+    assigns =
+      assigns
+      |> assign(:object_marks, object_marks(assigns.marks))
+      |> assign(:pawn_marks, pawn_marks(assigns.marks))
+      |> assign_new(:revealed_mark_keys, fn -> [] end)
+
+    ~H"""
+    <span
+      :if={@object_marks != [] or @pawn_marks != []}
+      data-board-mark-stack="stacked"
+      class="pointer-events-none absolute inset-0 z-10"
+    >
+      <span
+        :if={@object_marks != []}
+        data-board-mark-layer="objects"
+        class={object_mark_layer_class(@pawn_marks)}
+      >
+        <%= for mark <- @object_marks do %>
+          <% reveal_key = mark_reveal_key(mark) %>
+          <% reveal_active = reveal_key in @revealed_mark_keys %>
+          <span
+            id={if(reveal_active, do: mark_reveal_dom_id(mark))}
+            phx-hook={if(reveal_active, do: "BoardRevealHook")}
+            data-board-mark={mark_kind(mark)}
+            data-mark-status={mark_status(mark)}
+            data-reveal-key={if(reveal_active, do: reveal_key)}
+            data-reveal-layer={if(reveal_active, do: "above-turn-banner")}
+            data-reveal-duration={if(reveal_active, do: "3000")}
+            class={[mark_class(mark), reveal_active && "board-reveal-mark"]}
+          >
+            {mark_label(mark)}
+          </span>
+        <% end %>
+      </span>
+      <span
+        :if={@pawn_marks != []}
+        data-board-mark-layer="pawns"
+        class="absolute inset-0 z-20 flex h-full w-full flex-wrap items-center justify-center gap-0.5 p-0.5"
+      >
+        <%= for mark <- @pawn_marks do %>
+          <span
+            data-board-mark={mark_kind(mark)}
+            data-mark-status={mark_status(mark)}
+            class={mark_class(mark)}
+          >
+            {mark_label(mark)}
+          </span>
+        <% end %>
+      </span>
+    </span>
+    """
+  end
+
+  defp object_marks(marks), do: Enum.reject(marks, &pawn_mark?/1)
+  defp pawn_marks(marks), do: Enum.filter(marks, &pawn_mark?/1)
+
+  defp pawn_mark?({:detective, _id, _color}), do: true
+  defp pawn_mark?({:thief, _color}), do: true
+  defp pawn_mark?(_mark), do: false
+
+  defp mark_reveal_key({:painting, label, :removed}), do: "painting:#{label}:removed"
+  defp mark_reveal_key({:camera, id, :disabled}), do: "camera:#{id}:disabled"
+  defp mark_reveal_key(_mark), do: nil
+
+  defp mark_reveal_dom_id(mark) do
+    key =
+      mark
+      |> mark_reveal_key()
+      |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+
+    "board-reveal-#{key}"
+  end
+
+  defp object_mark_layer_class([]) do
+    "absolute inset-0 z-10 flex h-full w-full flex-wrap items-center justify-center gap-0.5 p-1"
+  end
+
+  defp object_mark_layer_class(_pawn_marks) do
+    "absolute inset-x-0 bottom-0 z-10 flex w-full flex-wrap items-end justify-center gap-0.5 px-0.5 pb-0.5"
   end
 
   defp lock_marks(state, player_id, pos) do
@@ -1458,27 +1837,24 @@ defmodule MuseumCaperWeb.GameLive do
   defp detective_marks(state, pos) do
     state.detective_positions
     |> Enum.filter(fn {_id, detective_pos} -> detective_pos == pos end)
-    |> Enum.map(fn {id, _pos} -> detective_label(state, id) end)
+    |> Enum.map(fn {id, _pos} -> {:detective, id, detective_color(state, id)} end)
   end
 
   defp thief_marks(state, player_id, pos) do
     if state.thief_position == pos and
          (player_role(state, player_id) == :thief or state.chase_mode or state.phase == :game_over) do
-      ["T"]
+      [{:thief, :grey}]
     else
       []
     end
   end
 
-  defp detective_label(state, id) do
+  defp detective_color(state, id) do
     case Map.get(state.players, id) do
-      %{name: name} -> name
-      nil -> "Detective"
+      %{color: color} -> color
+      nil -> PawnColors.default()
     end
   end
-
-  defp mark_class("T"),
-    do: "rounded bg-stone-950 px-1.5 py-0.5 text-[0.65rem] font-black text-amber-200"
 
   defp mark_class({:painting, _label, :present}),
     do: "rounded bg-amber-900 px-1 py-0.5 text-[0.58rem] font-black text-amber-100"
@@ -1496,6 +1872,11 @@ defmodule MuseumCaperWeb.GameLive do
   defp mark_class({:camera, _id, _status}),
     do: "rounded bg-sky-900 px-1 py-0.5 text-[0.58rem] font-black text-sky-100"
 
+  defp mark_class({:detective, _id, color}),
+    do: pawn_mark_class(color)
+
+  defp mark_class({:thief, color}), do: pawn_mark_class(color)
+
   defp mark_class(_),
     do:
       "max-w-full truncate rounded bg-emerald-900 px-1 py-0.5 text-[0.54rem] font-black text-emerald-100"
@@ -1503,16 +1884,41 @@ defmodule MuseumCaperWeb.GameLive do
   defp mark_label({:painting, label, :targeted}), do: "#{label}*"
   defp mark_label({:painting, label, _status}), do: label
   defp mark_label({:camera, id, _status}), do: "C#{id}"
+  defp mark_label({:detective, _id, _color}), do: ""
+  defp mark_label({:thief, _color}), do: ""
   defp mark_label(mark), do: mark
 
   defp mark_kind({:painting, _label, _status}), do: "painting"
   defp mark_kind({:camera, _id, _status}), do: "camera"
-  defp mark_kind("T"), do: "thief"
+  defp mark_kind({:detective, _id, _color}), do: "detective"
+  defp mark_kind({:thief, _color}), do: "thief"
   defp mark_kind(_mark), do: "piece"
 
   defp mark_status({:painting, _label, status}), do: status
   defp mark_status({:camera, _id, status}), do: status
+  defp mark_status({:detective, _id, color}), do: player_color_status(color)
+  defp mark_status({:thief, color}), do: player_color_status(color)
   defp mark_status(_mark), do: nil
+
+  defp player_color_status(:grey), do: "gray"
+  defp player_color_status(:gray), do: "gray"
+  defp player_color_status(color) when is_atom(color), do: Atom.to_string(color)
+  defp player_color_status(color), do: color
+
+  defp pawn_mark_class(color) do
+    "block size-3.5 rounded-full border-2 shadow-sm md:size-5 lg:size-6 " <>
+      pawn_color_class(color)
+  end
+
+  defp pawn_color_class(:purple), do: "border-purple-200 bg-purple-500 shadow-purple-950/40"
+  defp pawn_color_class(:green), do: "border-green-200 bg-green-500 shadow-green-950/40"
+  defp pawn_color_class(:blue), do: "border-blue-200 bg-blue-500 shadow-blue-950/40"
+  defp pawn_color_class(:white), do: "border-stone-300 bg-stone-50 shadow-stone-950/40"
+  defp pawn_color_class(:red), do: "border-red-200 bg-red-500 shadow-red-950/40"
+  defp pawn_color_class(:yellow), do: "border-yellow-100 bg-yellow-300 shadow-yellow-950/40"
+  defp pawn_color_class(:grey), do: "border-stone-300 bg-stone-500 shadow-stone-950/40"
+  defp pawn_color_class(:gray), do: pawn_color_class(:grey)
+  defp pawn_color_class(_color), do: pawn_color_class(PawnColors.default())
 
   defp lock_mark_class do
     "absolute left-1/2 top-1 z-20 -translate-x-1/2 rounded border border-stone-200/70 bg-stone-800 px-1 py-0.5 text-[0.52rem] font-black uppercase leading-none text-stone-100 shadow shadow-stone-950/40"

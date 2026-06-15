@@ -12,6 +12,7 @@ defmodule MuseumCaper.Game.State do
             motion_snips_remaining: 2,
             motion_detector_decision: nil,
             detective_result: nil,
+            detective_result_id: 0,
             game_log: [],
             pending_steal: nil,
             stolen_count: 0,
@@ -25,6 +26,8 @@ defmodule MuseumCaper.Game.State do
             chase_mode: false,
             dice: nil,
             turn_actions_remaining: [],
+            movement_path: [],
+            movement_spent: 0,
             winner: nil,
             game_over_reason: nil
 
