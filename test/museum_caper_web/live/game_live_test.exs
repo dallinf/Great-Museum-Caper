@@ -887,7 +887,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='3000']",
+             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='5000']",
              "Your Turn"
            )
 
@@ -930,7 +930,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              thief_view,
-             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='3000']",
+             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='5000']",
              "Your Turn"
            )
 

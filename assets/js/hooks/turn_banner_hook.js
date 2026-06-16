@@ -186,7 +186,7 @@ const TurnBannerHook = {
     return this.el.querySelector("[data-turn-banner-panel]") || this.el;
   },
   duration() {
-    return Number.parseInt(this.el.dataset.turnBannerDuration || "3000", 10);
+    return Number.parseInt(this.el.dataset.turnBannerDuration || "5000", 10);
   },
   prefersReducedMotion() {
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
