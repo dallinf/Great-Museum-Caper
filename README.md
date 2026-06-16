@@ -1,4 +1,6 @@
-# MuseumCaper
+# The Great Museum Caper
+
+A Phoenix LiveView version of The Great Museum Caper for online play.
 
 To start your Phoenix server:
 

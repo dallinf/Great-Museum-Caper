@@ -544,7 +544,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert {3, 8} in destinations
     end
 
-    test "cannot land on or move through active painting cells" do
+    test "can move through active painting cells without landing on them" do
       state = %{
         base_state()
         | dice: {5, :eye},
@@ -555,7 +555,21 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       destinations = Rules.valid_detective_destinations(state, "d1")
 
       refute {3, 8} in destinations
-      refute {3, 7} in destinations
+      assert {3, 7} in destinations
+    end
+
+    test "can cross artwork spaces inside the white room" do
+      state = %{
+        base_state()
+        | dice: {6, :eye},
+          detective_positions: %{"d1" => {6, 6}, "d2" => {9, 5}},
+          paintings: %{{4, 5} => :present}
+      }
+
+      destinations = Rules.valid_detective_destinations(state, "d1")
+
+      refute {4, 5} in destinations
+      assert {4, 6} in destinations
     end
 
     test "can use a painting space after the thief removes it" do
@@ -615,6 +629,25 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert {3, 8} in destinations
       assert {3, 7} in destinations
     end
+
+    test "cannot land on or move through external door cells" do
+      for {inside_cell, door_cell} <- [
+            {{10, 6}, {11, 6}},
+            {{10, 7}, {11, 7}},
+            {{5, 11}, {5, 12}},
+            {{6, 2}, {6, 1}}
+          ] do
+        state = %{
+          base_state()
+          | dice: {1, :eye},
+            detective_positions: %{"d1" => inside_cell, "d2" => {9, 5}}
+        }
+
+        destinations = Rules.valid_detective_destinations(state, "d1")
+
+        refute door_cell in destinations
+      end
+    end
   end
 
   describe "move_detective/3" do
@@ -623,6 +656,17 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       {:ok, new_state} = Rules.move_detective(state, "d1", {3, 8})
       assert new_state.detective_positions["d1"] == {3, 8}
       assert :move in new_state.turn_actions_remaining
+    end
+
+    test "rejects moves onto external door cells" do
+      state = %{
+        base_state()
+        | dice: {1, :eye},
+          turn_actions_remaining: [:move, :look],
+          detective_positions: %{"d1" => {10, 6}, "d2" => {9, 5}}
+      }
+
+      assert {:error, :invalid_move} = Rules.move_detective(state, "d1", {11, 6})
     end
 
     test "detective can keep moving with remaining die movement" do
@@ -714,6 +758,30 @@ defmodule MuseumCaper.Game.RulesMovementTest do
           thief_position: {3, 8},
           detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
           paintings: %{{3, 8} => :targeted},
+          chase_mode: true,
+          turn_actions_remaining: [:move, :look]
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert state.phase == :playing
+      assert state.winner == nil
+      assert state.game_over_reason == nil
+
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.phase == :game_over
+      assert state.winner == :detectives
+      assert state.game_over_reason == :caught
+    end
+
+    test "landing on a known thief on stolen artwork waits for end turn before capture" do
+      state = %{
+        base_state()
+        | dice: {1, :eye},
+          current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          thief_position: {3, 8},
+          detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
+          paintings: %{{3, 8} => :removed},
           chase_mode: true,
           turn_actions_remaining: [:move, :look]
       }

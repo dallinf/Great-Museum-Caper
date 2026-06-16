@@ -244,30 +244,47 @@ defmodule MuseumCaper.Game.Rules do
       |> Enum.map(fn {_id, detective_pos} -> detective_pos end)
       |> MapSet.new()
 
-    bfs_distances(origin, max_steps, blocking_painting_cells(state))
+    bfs_distances(origin, max_steps, detective_movement_blocked_cells(state))
     |> Map.keys()
     |> MapSet.new()
     |> MapSet.delete(pos)
     |> MapSet.difference(detective_cells)
+    |> MapSet.difference(detective_landing_blocked_cells(state))
     |> MapSet.to_list()
   end
 
-  defp active_painting_cells(state) do
+  defp detective_movement_blocked_cells(state) do
+    state
+    |> hidden_thief_painting_cells()
+    |> MapSet.union(MapSet.new(Board.external_door_cells()))
+  end
+
+  defp hidden_thief_painting_cells(%{chase_mode: true}), do: MapSet.new()
+
+  defp hidden_thief_painting_cells(state) do
     state.paintings
-    |> Enum.reject(fn {_pos, status} -> status == :removed end)
+    |> Enum.filter(fn {_pos, status} -> status == :targeted end)
     |> Enum.map(fn {pos, _status} -> pos end)
     |> MapSet.new()
   end
 
-  defp blocking_painting_cells(state) do
-    blocked = active_painting_cells(state)
-
-    if state.chase_mode and state.paintings[state.thief_position] == :targeted do
-      MapSet.delete(blocked, state.thief_position)
-    else
-      blocked
-    end
+  defp detective_landing_blocked_cells(state) do
+    state.paintings
+    |> Enum.filter(fn {pos, status} -> painting_blocks_detective_landing?(state, pos, status) end)
+    |> Enum.map(fn {pos, _status} -> pos end)
+    |> MapSet.new()
   end
+
+  defp painting_blocks_detective_landing?(_state, _pos, :removed), do: false
+
+  defp painting_blocks_detective_landing?(
+         %{chase_mode: true, thief_position: pos},
+         pos,
+         :targeted
+       ),
+       do: false
+
+  defp painting_blocks_detective_landing?(_state, _pos, _status), do: true
 
   defp bfs_distances(start, max_steps, _blocked) when max_steps <= 0, do: %{start => 0}
 
@@ -298,7 +315,7 @@ defmodule MuseumCaper.Game.Rules do
             detective_id,
             destination,
             elem(state.dice, 0),
-            blocking_painting_cells(state)
+            detective_movement_blocked_cells(state)
           )
 
         {:ok, check_detective_power_room(state, destination)}
@@ -523,7 +540,7 @@ defmodule MuseumCaper.Game.Rules do
 
   def use_eye_action(state, detective_id) do
     pos = state.detective_positions[detective_id]
-    state = %{state | turn_actions_remaining: List.delete(state.turn_actions_remaining, :look)}
+    state = spend_look_and_movement(state)
 
     if Board.can_see?(pos, state.thief_position) do
       {:ok, :chase_triggered, spot_thief(state, {:look_pawn, :chase_triggered})}
@@ -533,7 +550,7 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   def use_eye_on_camera(state, _detective_id, camera_id) do
-    state = %{state | turn_actions_remaining: List.delete(state.turn_actions_remaining, :look)}
+    state = spend_camera_eye_look(state)
 
     if not state.power_active do
       {:ok, :power_off,
@@ -562,13 +579,36 @@ defmodule MuseumCaper.Game.Rules do
           {:ok, result, put_detective_result(state, {:look_camera, result})}
 
         true ->
-          {:ok, :no_sighting, put_detective_result(state, {:look_camera, :no_sighting})}
+          {:ok, :no_sighting,
+           put_detective_result(state, {:look_camera, {:no_sighting, camera_id}})}
       end
     end
   end
 
+  defp spend_camera_eye_look(state) do
+    if movement_made?(state) do
+      spend_look_and_movement(state)
+    else
+      spend_look(state)
+    end
+  end
+
+  defp spend_look_and_movement(state) do
+    %{
+      state
+      | turn_actions_remaining:
+          state.turn_actions_remaining
+          |> List.delete(:look)
+          |> List.delete(:move)
+    }
+  end
+
+  defp spend_look(state) do
+    %{state | turn_actions_remaining: List.delete(state.turn_actions_remaining, :look)}
+  end
+
   def use_camera_scan(state) do
-    state = %{state | turn_actions_remaining: List.delete(state.turn_actions_remaining, :look)}
+    state = spend_look(state)
 
     if not state.power_active do
       {:ok, :power_off,
