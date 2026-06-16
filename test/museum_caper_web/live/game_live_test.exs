@@ -829,6 +829,8 @@ defmodule MuseumCaperWeb.GameLiveTest do
              "Your Turn"
            )
 
+    assert has_element?(alice_view, "#turn-banner[data-turn-banner-chime='true']")
+
     assert has_element?(
              alice_view,
              "#turn-banner [data-turn-banner-panel][data-turn-banner-size='massive']",
