@@ -104,12 +104,12 @@ defmodule MuseumCaperWeb.Layouts do
       >
         <div class="mx-auto flex h-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <.link navigate={~p"/"} class="group flex items-center gap-3">
-            <span class="grid size-9 place-items-center rounded-md border border-amber-300/40 bg-amber-300 text-sm font-black text-stone-950 shadow-lg shadow-amber-950/30">
-              MC
+            <span class="grid size-9 place-items-center rounded-md border border-amber-300/40 bg-amber-300 text-xs font-black text-stone-950 shadow-lg shadow-amber-950/30">
+              GMC
             </span>
             <span>
-              <span class="block text-sm font-black uppercase tracking-[0.18em] text-stone-50">
-                Museum Caper
+              <span class="block text-sm font-black tracking-normal text-stone-50 sm:uppercase sm:tracking-[0.08em]">
+                The Great Museum Caper
               </span>
               <span class="block text-xs text-stone-500 transition group-hover:text-stone-300">
                 Online game

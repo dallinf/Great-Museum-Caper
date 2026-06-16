@@ -23,7 +23,7 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
   test "renders production lobby copy", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/")
 
-    assert has_element?(view, "#app-header", "Online game")
+    assert has_element?(view, "#app-header", "The Great Museum Caper")
 
     assert has_element?(
              view,

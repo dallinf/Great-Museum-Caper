@@ -238,7 +238,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert has_element?(alice_view, "#game-shell.h-dvh.overflow-hidden")
     assert has_element?(alice_view, "#game-layout.grid.h-full")
     assert has_element?(alice_view, "#game-sidebar.order-last")
-    refute has_element?(alice_view, "#game-sidebar", "Museum Caper")
+    refute has_element?(alice_view, "#game-sidebar", "The Great Museum Caper")
     refute has_element?(alice_view, "#game-sidebar", "Night Shift")
     refute has_element?(alice_view, "#game-sidebar [data-game-phase]")
 

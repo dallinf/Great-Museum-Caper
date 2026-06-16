@@ -1,6 +1,6 @@
-# Deploying Museum Caper to a Synology NAS
+# Deploying The Great Museum Caper to a Synology NAS
 
-This guide deploys Museum Caper as a private Phoenix release container on a Synology NAS using Container Manager.
+This guide deploys The Great Museum Caper as a Phoenix release container on a Synology NAS using Container Manager.
 
 The fastest path is:
 
@@ -8,7 +8,7 @@ The fastest path is:
 2. Put the Compose project in `/volume1/docker/museum-caper`.
 3. Run it with Synology Container Manager or Docker Compose.
 
-Museum Caper currently stores lobby and game state in memory. Restarting the container clears active rooms and games. That is fine for a local/private prototype, but it is not durable hosting.
+The Great Museum Caper currently stores lobby and game state in memory. Restarting the container clears active rooms and games, so this deployment is best for short sessions unless persistence is added.
 
 ## References
 
