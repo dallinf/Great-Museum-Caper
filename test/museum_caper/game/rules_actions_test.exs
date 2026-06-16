@@ -113,7 +113,7 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       assert new_state.power_revealed
     end
 
-    test "spends remaining detective movement after looking through a camera" do
+    test "keeps detective movement available after looking through a camera before moving" do
       state = %{
         base_state()
         | current_turn: "d1",
@@ -125,8 +125,27 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       {:ok, :no_sighting, new_state} = Rules.use_eye_on_camera(state, "d1", 1)
 
       refute :look in new_state.turn_actions_remaining
+      assert :move in new_state.turn_actions_remaining
+      assert {:error, :movement_required} = Rules.end_turn(new_state)
+      assert {:ok, moved_state} = Rules.move_detective(new_state, "d1", {3, 8})
+      assert moved_state.detective_positions["d1"] == {3, 8}
+    end
+
+    test "spends remaining detective movement after looking through a camera after moving" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          dice: {4, :eye},
+          thief_position: {1, 6}
+      }
+
+      {:ok, moved_state} = Rules.move_detective(state, "d1", {3, 8})
+      {:ok, :no_sighting, new_state} = Rules.use_eye_on_camera(moved_state, "d1", 1)
+
+      refute :look in new_state.turn_actions_remaining
       refute :move in new_state.turn_actions_remaining
-      assert {:error, :invalid_move} = Rules.move_detective(new_state, "d1", {3, 8})
+      assert {:error, :invalid_move} = Rules.move_detective(new_state, "d1", {4, 9})
       assert {:ok, advanced_state} = Rules.end_turn(new_state)
       assert advanced_state.current_turn == "t"
     end

@@ -1192,6 +1192,55 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert has_element?(alice_view, "#game-notification", "That move is not legal.")
   end
 
+  test "detective can move after looking through a camera before moving", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_detective_turn!(pid, {4, :eye})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    render_click(element(alice_view, "#look-camera-1"))
+
+    state = GameServer.get_state(pid)
+    assert state.current_turn == "player-alice"
+    assert state.turn_actions_remaining == [:move]
+    assert state.movement_spent == 0
+    assert has_element?(alice_view, "#cell-4-4.cursor-pointer")
+    assert has_element?(alice_view, "#end-turn-button[disabled]", "Move first")
+
+    render_click(element(alice_view, "#cell-4-4"))
+
+    state = GameServer.get_state(pid)
+    assert state.detective_positions["player-alice"] == {4, 4}
+    assert state.movement_spent > 0
+    assert has_element?(alice_view, "#end-turn-button:not([disabled])", "End turn")
+  end
+
+  test "detective cannot keep moving after looking through a camera after moving", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_detective_turn!(pid, {4, :eye})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    render_click(element(alice_view, "#cell-4-4"))
+    render_click(element(alice_view, "#look-camera-1"))
+
+    state = GameServer.get_state(pid)
+    assert state.current_turn == "player-alice"
+    assert state.turn_actions_remaining == []
+    refute has_element?(alice_view, "#cell-2-4.cursor-pointer")
+    assert has_element?(alice_view, "#end-turn-button:not([disabled])", "End turn")
+  end
+
   test "all players see camera look results", %{
     conn: conn,
     game_id: game_id
