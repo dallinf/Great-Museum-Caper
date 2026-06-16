@@ -1311,7 +1311,38 @@ defmodule MuseumCaperWeb.GameLiveTest do
            )
   end
 
-  test "visible thief turns only show the numbered die", %{
+  test "detective turns show visual movement and action dice", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_detective_turn!(pid, {6, :eye})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(alice_view, "#dice-readout[data-dice-readout='visual']")
+
+    assert has_element?(
+             alice_view,
+             "#movement-die[data-die-value='6'][aria-label='Movement die: 6']"
+           )
+
+    assert has_element?(alice_view, "#movement-die [data-die-pip='6']")
+
+    assert has_element?(
+             alice_view,
+             "#action-die[data-die-action='eye'][aria-label='Action die: eye']"
+           )
+
+    assert has_element?(alice_view, "#action-die [data-die-icon='eye']")
+    refute has_element?(alice_view, "#turn-panel", "Current:")
+    refute has_element?(alice_view, "#turn-panel", "Actions:")
+    refute has_element?(alice_view, "#dice-readout", "Die:")
+  end
+
+  test "visible thief turns only show the movement die", %{
     conn: conn,
     game_id: game_id
   } do
@@ -1321,8 +1352,12 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
 
-    assert has_element?(alice_view, "#dice-readout", "Die: 4")
+    assert has_element?(alice_view, "#dice-readout[data-dice-readout='visual']")
+    assert has_element?(alice_view, "#movement-die[data-die-value='4']")
+    refute has_element?(alice_view, "#action-die")
+    refute has_element?(alice_view, "#dice-readout", "Die:")
     refute has_element?(alice_view, "#dice-readout", "eye")
+    refute has_element?(alice_view, "#turn-panel", "Waiting for another player.")
     refute has_element?(alice_view, "#look-pawn-button")
     refute has_element?(alice_view, "#camera-scan-button")
     refute has_element?(alice_view, "#motion-detector-button")

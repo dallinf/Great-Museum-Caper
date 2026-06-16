@@ -690,18 +690,9 @@ defmodule MuseumCaperWeb.GameLive do
 
   def turn_panel(assigns) do
     ~H"""
-    <div id="turn-panel" class="space-y-3 rounded-lg border border-stone-700 bg-stone-800 p-3">
-      <h2 class="text-sm font-black uppercase tracking-[0.18em] text-stone-200">Turn</h2>
-      <p class="text-sm text-stone-300">
-        Current: <strong class="text-stone-50">{current_player_name(@game_state)}</strong>
-      </p>
+    <div id="turn-panel" class="space-y-3 rounded-lg border border-stone-700 bg-stone-900/80 p-2">
       <%= if @game_state.dice do %>
-        <p id="dice-readout" class="rounded-md bg-stone-950/70 p-2 text-sm text-stone-200">
-          Die: <strong>{elem(@game_state.dice, 0)}</strong>
-          <%= if elem(@game_state.dice, 1) do %>
-            , <strong>{elem(@game_state.dice, 1)}</strong>
-          <% end %>
-        </p>
+        <.dice_readout dice={@game_state.dice} />
       <% end %>
 
       <.motion_decision_buttons game_state={@game_state} player_id={@player_id} />
@@ -709,9 +700,6 @@ defmodule MuseumCaperWeb.GameLive do
       <%= if my_turn?(@game_state, @player_id) do %>
         <% can_end_turn? = turn_can_end?(@game_state) %>
         <div class="space-y-2">
-          <p class="text-xs uppercase tracking-[0.16em] text-stone-400">
-            Actions: {Enum.join(@game_state.turn_actions_remaining, ", ")}
-          </p>
           <.look_buttons game_state={@game_state} player_id={@player_id} />
           <.escape_choice_panel
             game_state={@game_state}
@@ -735,11 +723,59 @@ defmodule MuseumCaperWeb.GameLive do
             {if(can_end_turn?, do: "End turn", else: "Move first")}
           </button>
         </div>
-      <% else %>
-        <p class="rounded-md border border-dashed border-stone-700 p-3 text-sm text-stone-400">
-          Waiting for another player.
-        </p>
       <% end %>
+    </div>
+    """
+  end
+
+  attr :dice, :any, required: true
+
+  def dice_readout(assigns) do
+    ~H"""
+    <div
+      id="dice-readout"
+      data-dice-readout="visual"
+      class="flex items-center justify-center gap-2 rounded-md border border-stone-700 bg-stone-950/75 p-2"
+    >
+      <.movement_die value={elem(@dice, 0)} />
+      <.action_die :if={elem(@dice, 1)} action={elem(@dice, 1)} />
+    </div>
+    """
+  end
+
+  attr :value, :integer, required: true
+
+  def movement_die(assigns) do
+    ~H"""
+    <div
+      id="movement-die"
+      data-die-kind="movement"
+      data-die-value={@value}
+      aria-label={"Movement die: #{@value}"}
+      class="relative size-12 rounded-lg border-2 border-stone-200 bg-stone-50 shadow-lg shadow-black/30 md:size-14"
+    >
+      <%= for position <- die_pip_positions(@value) do %>
+        <span data-die-pip={@value} data-pip-position={position} class={die_pip_class(position)}>
+        </span>
+      <% end %>
+    </div>
+    """
+  end
+
+  attr :action, :atom, required: true
+
+  def action_die(assigns) do
+    ~H"""
+    <div
+      id="action-die"
+      data-die-kind="action"
+      data-die-action={action_die_value(@action)}
+      aria-label={"Action die: #{action_die_label(@action)}"}
+      class="grid size-12 place-items-center rounded-lg border-2 border-amber-200 bg-amber-100 text-stone-950 shadow-lg shadow-black/30 md:size-14"
+    >
+      <span data-die-icon={action_die_value(@action)} class="grid place-items-center">
+        <.icon name={action_die_icon(@action)} class="size-7 md:size-8" />
+      </span>
     </div>
     """
   end
@@ -1515,12 +1551,52 @@ defmodule MuseumCaperWeb.GameLive do
     |> Enum.join(", ")
   end
 
-  defp current_player_name(state) do
-    case Map.get(state.players, state.current_turn) do
-      nil -> "Nobody"
-      player -> player.name
-    end
+  defp die_pip_positions(1), do: [:center]
+  defp die_pip_positions(2), do: [:top_left, :bottom_right]
+  defp die_pip_positions(3), do: [:top_left, :center, :bottom_right]
+  defp die_pip_positions(4), do: [:top_left, :top_right, :bottom_left, :bottom_right]
+
+  defp die_pip_positions(5),
+    do: [:top_left, :top_right, :center, :bottom_left, :bottom_right]
+
+  defp die_pip_positions(6),
+    do: [:top_left, :middle_left, :bottom_left, :top_right, :middle_right, :bottom_right]
+
+  defp die_pip_positions(_value), do: []
+
+  defp die_pip_class(position) do
+    [
+      "absolute block size-2 rounded-full bg-stone-950 shadow-sm md:size-2.5",
+      die_pip_position_class(position)
+    ]
   end
+
+  defp die_pip_position_class(:top_left), do: "left-2 top-2 md:left-2.5 md:top-2.5"
+  defp die_pip_position_class(:top_right), do: "right-2 top-2 md:right-2.5 md:top-2.5"
+
+  defp die_pip_position_class(:middle_left),
+    do: "left-2 top-1/2 -translate-y-1/2 md:left-2.5"
+
+  defp die_pip_position_class(:middle_right),
+    do: "right-2 top-1/2 -translate-y-1/2 md:right-2.5"
+
+  defp die_pip_position_class(:center),
+    do: "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+
+  defp die_pip_position_class(:bottom_left),
+    do: "bottom-2 left-2 md:bottom-2.5 md:left-2.5"
+
+  defp die_pip_position_class(:bottom_right),
+    do: "bottom-2 right-2 md:bottom-2.5 md:right-2.5"
+
+  defp action_die_value(action), do: action |> Atom.to_string() |> String.replace("_", "-")
+
+  defp action_die_label(:camera_scan), do: "camera scan"
+  defp action_die_label(action), do: action_die_value(action)
+
+  defp action_die_icon(:eye), do: "hero-eye-solid"
+  defp action_die_icon(:camera_scan), do: "hero-camera-solid"
+  defp action_die_icon(:motion), do: "hero-signal-solid"
 
   defp my_turn?(state, player_id), do: state.current_turn == player_id
 
