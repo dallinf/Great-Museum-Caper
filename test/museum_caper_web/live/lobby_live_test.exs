@@ -117,6 +117,42 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
     assert to =~ "player_color=green"
   end
 
+  test "join room form keeps typed values when another player joins", %{conn: conn} do
+    {:ok, alice_lobby_view, _html} = live(conn, "/")
+    {:ok, bob_lobby_view, _html} = live(conn, "/")
+    {:ok, game_id} = MuseumCaper.Lobby.Server.create_room("Race Room", "Alice")
+
+    render_click(element(alice_lobby_view, "#show-join-#{game_id}"))
+    render_click(element(bob_lobby_view, "#show-join-#{game_id}"))
+
+    bob_lobby_view
+    |> form("#join-room-form-#{game_id}", %{
+      join: %{game_id: game_id, player_name: "Bob", player_color: "green"}
+    })
+    |> render_change()
+
+    assert has_element?(
+             bob_lobby_view,
+             "#join-room-form-#{game_id} input[name='join[player_name]'][value='Bob']"
+           )
+
+    assert {:error, {:live_redirect, %{to: to}}} =
+             alice_lobby_view
+             |> form("#join-room-form-#{game_id}", %{
+               join: %{game_id: game_id, player_name: "Cora", player_color: "purple"}
+             })
+             |> render_submit()
+
+    {:ok, _cora_view, _html} = live(conn, to)
+
+    assert has_element?(
+             bob_lobby_view,
+             "#join-room-form-#{game_id} input[name='join[player_name]'][value='Bob']"
+           )
+
+    assert has_element?(bob_lobby_view, "#join-player-color-#{game_id}-green input[checked]")
+  end
+
   test "join room form disables pawn colors already chosen", %{conn: conn} do
     {:ok, lobby_view, _html} = live(conn, "/")
     {:ok, game_id} = MuseumCaper.Lobby.Server.create_room("Taken Color Room", "Alice")
