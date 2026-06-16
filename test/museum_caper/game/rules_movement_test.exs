@@ -615,6 +615,25 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert {3, 8} in destinations
       assert {3, 7} in destinations
     end
+
+    test "cannot land on or move through external door cells" do
+      for {inside_cell, door_cell} <- [
+            {{10, 6}, {11, 6}},
+            {{10, 7}, {11, 7}},
+            {{5, 11}, {5, 12}},
+            {{6, 2}, {6, 1}}
+          ] do
+        state = %{
+          base_state()
+          | dice: {1, :eye},
+            detective_positions: %{"d1" => inside_cell, "d2" => {9, 5}}
+        }
+
+        destinations = Rules.valid_detective_destinations(state, "d1")
+
+        refute door_cell in destinations
+      end
+    end
   end
 
   describe "move_detective/3" do
@@ -623,6 +642,17 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       {:ok, new_state} = Rules.move_detective(state, "d1", {3, 8})
       assert new_state.detective_positions["d1"] == {3, 8}
       assert :move in new_state.turn_actions_remaining
+    end
+
+    test "rejects moves onto external door cells" do
+      state = %{
+        base_state()
+        | dice: {1, :eye},
+          turn_actions_remaining: [:move, :look],
+          detective_positions: %{"d1" => {10, 6}, "d2" => {9, 5}}
+      }
+
+      assert {:error, :invalid_move} = Rules.move_detective(state, "d1", {11, 6})
     end
 
     test "detective can keep moving with remaining die movement" do

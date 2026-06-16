@@ -244,7 +244,7 @@ defmodule MuseumCaper.Game.Rules do
       |> Enum.map(fn {_id, detective_pos} -> detective_pos end)
       |> MapSet.new()
 
-    bfs_distances(origin, max_steps, blocking_painting_cells(state))
+    bfs_distances(origin, max_steps, detective_movement_blocked_cells(state))
     |> Map.keys()
     |> MapSet.new()
     |> MapSet.delete(pos)
@@ -267,6 +267,12 @@ defmodule MuseumCaper.Game.Rules do
     else
       blocked
     end
+  end
+
+  defp detective_movement_blocked_cells(state) do
+    state
+    |> blocking_painting_cells()
+    |> MapSet.union(MapSet.new(Board.external_door_cells()))
   end
 
   defp bfs_distances(start, max_steps, _blocked) when max_steps <= 0, do: %{start => 0}
@@ -298,7 +304,7 @@ defmodule MuseumCaper.Game.Rules do
             detective_id,
             destination,
             elem(state.dice, 0),
-            blocking_painting_cells(state)
+            detective_movement_blocked_cells(state)
           )
 
         {:ok, check_detective_power_room(state, destination)}
