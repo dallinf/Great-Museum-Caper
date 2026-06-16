@@ -196,7 +196,7 @@ defmodule MuseumCaperWeb.GameLive do
         {:noreply, refresh_state(socket, "The detectives spotted the thief.")}
 
       {:ok, :no_sighting} ->
-        {:noreply, refresh_state(socket, "No thief in that line of sight.")}
+        {:noreply, refresh_state(socket, "Pawn cannot see the thief.")}
     end
   end
 
@@ -1553,7 +1553,7 @@ defmodule MuseumCaperWeb.GameLive do
     do: "The detectives spotted the thief."
 
   defp detective_result_message({:look_pawn, :no_sighting}),
-    do: "No thief in that line of sight."
+    do: "Pawn cannot see the thief."
 
   defp detective_result_message({:look_camera, {:sighting, camera_id}}),
     do: camera_sighting_message(camera_id)

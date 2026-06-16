@@ -1209,7 +1209,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     render_click(element(alice_view, "#look-pawn-button"))
 
     for view <- [alice_view, bob_view, thief_view] do
-      assert_result_surface(view, "No thief in that line of sight.")
+      assert_result_surface(view, "Pawn cannot see the thief.")
     end
   end
 
