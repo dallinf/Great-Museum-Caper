@@ -16,6 +16,29 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
     {:ok, view, _html} = live(conn, "/")
     assert has_element?(view, "#create-room-form")
     assert has_element?(view, "#empty-rooms")
+    refute has_element?(view, "[data-phx-theme]")
+  end
+
+  test "lobby text inputs use the fixed app theme", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/")
+
+    assert has_element?(view, "#room_name.bg-stone-50.text-stone-950")
+    assert has_element?(view, "#room_name.placeholder\\:text-stone-500")
+    assert has_element?(view, "#room_player_name.bg-stone-50.text-stone-950")
+    assert has_element?(view, "#room_player_name.placeholder\\:text-stone-500")
+  end
+
+  test "create room form offers pawn color swatches", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/")
+
+    for color <- ~w(purple green blue white red yellow) do
+      assert has_element?(
+               view,
+               "#create-room-form input[name='room[player_color]'][value='#{color}']"
+             )
+
+      assert has_element?(view, "#create-player-color-#{color}[data-pawn-color='#{color}']")
+    end
   end
 
   test "create room redirects on success", %{conn: conn} do
@@ -23,7 +46,9 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
 
     assert {:error, {:live_redirect, %{to: "/game/" <> _}}} =
              view
-             |> form("#create-room-form", %{room: %{name: "Test Room", player_name: "Alice"}})
+             |> form("#create-room-form", %{
+               room: %{name: "Test Room", player_name: "Alice", player_color: "purple"}
+             })
              |> render_submit()
   end
 
@@ -65,6 +90,52 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
     {:ok, _cora_view, _html} = live(conn, "/game/#{game_id}?player_name=Cora")
 
     assert has_element?(lobby_view, "#room-#{game_id}", "3/4 players")
+  end
+
+  test "join room form sends the chosen pawn color to the game", %{conn: conn} do
+    {:ok, lobby_view, _html} = live(conn, "/")
+    {:ok, game_id} = MuseumCaper.Lobby.Server.create_room("Color Room", "Alice")
+
+    render_click(element(lobby_view, "#show-join-#{game_id}"))
+
+    for color <- ~w(purple green blue white red yellow) do
+      assert has_element?(
+               lobby_view,
+               "#join-room-form-#{game_id} input[name='join[player_color]'][value='#{color}']"
+             )
+    end
+
+    assert {:error, {:live_redirect, %{to: to}}} =
+             lobby_view
+             |> form("#join-room-form-#{game_id}", %{
+               join: %{game_id: game_id, player_name: "Bob", player_color: "green"}
+             })
+             |> render_submit()
+
+    assert to =~ "player_name=Bob"
+    assert to =~ "player_color=green"
+  end
+
+  test "join room form disables pawn colors already chosen", %{conn: conn} do
+    {:ok, lobby_view, _html} = live(conn, "/")
+    {:ok, game_id} = MuseumCaper.Lobby.Server.create_room("Taken Color Room", "Alice")
+
+    {:ok, _alice_view, _html} =
+      live(conn, "/game/#{game_id}?player_name=Alice&player_color=purple")
+
+    render_click(element(lobby_view, "#show-join-#{game_id}"))
+
+    assert has_element?(
+             lobby_view,
+             "#join-player-color-#{game_id}-purple[data-pawn-color-status='taken'] input[disabled]"
+           )
+
+    refute has_element?(lobby_view, "#join-player-color-#{game_id}-purple input[checked]")
+
+    assert has_element?(
+             lobby_view,
+             "#join-player-color-#{game_id}-green[data-pawn-color-status='available'] input[checked]"
+           )
   end
 
   test "does not offer join controls for games already in progress", %{conn: conn} do

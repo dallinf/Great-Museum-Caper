@@ -1,6 +1,6 @@
 defmodule MuseumCaper.Game.Server do
   use GenServer
-  alias MuseumCaper.Game.{Rules, State}
+  alias MuseumCaper.Game.{PawnColors, Rules, State}
   alias Phoenix.PubSub
 
   # --- Public API ---
@@ -16,8 +16,8 @@ defmodule MuseumCaper.Game.Server do
 
   def get_state(server), do: GenServer.call(server, :get_state)
 
-  def add_player(server, player_id, name),
-    do: GenServer.call(server, {:add_player, player_id, name})
+  def add_player(server, player_id, name, color \\ nil),
+    do: GenServer.call(server, {:add_player, player_id, name, color})
 
   def start_game(server, player_id, opts \\ []),
     do: GenServer.call(server, {:start_game, player_id, opts})
@@ -72,8 +72,8 @@ defmodule MuseumCaper.Game.Server do
   end
 
   @impl true
-  def handle_call({:add_player, player_id, name}, _from, server_state) do
-    case add_lobby_player(server_state.game_state, player_id, name) do
+  def handle_call({:add_player, player_id, name, color}, _from, server_state) do
+    case add_lobby_player(server_state.game_state, player_id, name, color) do
       {:ok, new_game_state} ->
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
@@ -234,7 +234,7 @@ defmodule MuseumCaper.Game.Server do
     PubSub.broadcast(MuseumCaper.PubSub, "game:#{game_id}", {:state_changed, game_state})
   end
 
-  defp add_lobby_player(%State{phase: :lobby} = game_state, player_id, name) do
+  defp add_lobby_player(%State{phase: :lobby} = game_state, player_id, name, color) do
     already_joined? = Map.has_key?(game_state.players, player_id)
 
     cond do
@@ -242,27 +242,31 @@ defmodule MuseumCaper.Game.Server do
         {:error, :room_full}
 
       already_joined? ->
-        player = %{game_state.players[player_id] | name: name}
-        {:ok, %{game_state | players: Map.put(game_state.players, player_id, player)}}
+        with {:ok, color} <- resolve_player_color(game_state, player_id, color) do
+          player = %{game_state.players[player_id] | name: name, color: color}
+          {:ok, %{game_state | players: Map.put(game_state.players, player_id, player)}}
+        end
 
       true ->
-        player = %{
-          name: name,
-          role: :unassigned,
-          color: player_color(length(game_state.turn_order))
-        }
+        with {:ok, color} <- resolve_player_color(game_state, player_id, color) do
+          player = %{
+            name: name,
+            role: :unassigned,
+            color: color
+          }
 
-        {:ok,
-         %{
-           game_state
-           | players: Map.put(game_state.players, player_id, player),
-             host_player_id: game_state.host_player_id || player_id,
-             turn_order: game_state.turn_order ++ [player_id]
-         }}
+          {:ok,
+           %{
+             game_state
+             | players: Map.put(game_state.players, player_id, player),
+               host_player_id: game_state.host_player_id || player_id,
+               turn_order: game_state.turn_order ++ [player_id]
+           }}
+        end
     end
   end
 
-  defp add_lobby_player(%State{} = game_state, player_id, name) do
+  defp add_lobby_player(%State{} = game_state, player_id, name, _color) do
     case Map.get(game_state.players, player_id) do
       nil ->
         {:error, :game_started}
@@ -295,7 +299,8 @@ defmodule MuseumCaper.Game.Server do
           |> Map.new(fn {assigned_player_id, index} ->
             role = if index == 0, do: :thief, else: :detective
             player = game_state.players[assigned_player_id]
-            {assigned_player_id, %{player | role: role, color: player_color(index)}}
+            color = if role == :thief, do: :grey, else: player.color
+            {assigned_player_id, %{player | role: role, color: color}}
           end)
 
         {:ok,
@@ -305,9 +310,26 @@ defmodule MuseumCaper.Game.Server do
 
   defp start_lobby_game(_game_state, _player_id, _opts), do: {:error, :invalid_phase}
 
-  defp player_color(0), do: :grey
-  defp player_color(1), do: :red
-  defp player_color(2), do: :blue
-  defp player_color(3), do: :green
-  defp player_color(_), do: :violet
+  defp resolve_player_color(game_state, player_id, requested_color) do
+    with {:ok, color} <- PawnColors.normalize(requested_color) do
+      color = color || current_or_next_color(game_state, player_id)
+
+      cond do
+        color == nil -> {:error, :room_full}
+        color_available?(game_state, player_id, color) -> {:ok, color}
+        true -> {:error, :color_taken}
+      end
+    end
+  end
+
+  defp current_or_next_color(game_state, player_id) do
+    case Map.get(game_state.players, player_id) do
+      %{color: color} -> color
+      _player -> PawnColors.next_available(game_state.players)
+    end
+  end
+
+  defp color_available?(game_state, player_id, color) do
+    Enum.all?(game_state.players, fn {id, player} -> id == player_id or player.color != color end)
+  end
 end

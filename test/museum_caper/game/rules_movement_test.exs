@@ -410,13 +410,19 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert new_state.thief_position == {3, 7}
     end
 
-    test "rejects a second move after the thief spends their move action" do
+    test "thief can revise final movement destination until ending turn" do
       state = base_state()
 
-      {:ok, moved_state} = Rules.move_thief(state, {3, 7})
+      assert {:ok, state} = Rules.move_thief(state, {3, 7})
+      assert state.turn_actions_remaining == [:move]
+      assert {:ok, _advanced_state} = Rules.end_turn(state)
 
-      assert moved_state.turn_actions_remaining == []
-      assert {:error, :invalid_move} = Rules.move_thief(moved_state, {3, 8})
+      assert {:ok, state} = Rules.move_thief(state, {3, 8})
+      assert state.thief_position == {3, 8}
+
+      assert {:ok, state} = Rules.move_thief(state, {4, 4})
+      assert state.thief_position == {4, 4}
+      assert state.movement_spent == 3
     end
 
     test "rejects move to invalid destination" do
@@ -616,30 +622,95 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       state = %{base_state() | dice: {3, :eye}, turn_actions_remaining: [:move, :look]}
       {:ok, new_state} = Rules.move_detective(state, "d1", {3, 8})
       assert new_state.detective_positions["d1"] == {3, 8}
-      refute :move in new_state.turn_actions_remaining
+      assert :move in new_state.turn_actions_remaining
     end
 
-    test "landing on thief triggers capture even when not in chase mode" do
+    test "detective can keep moving with remaining die movement" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          dice: {6, :eye},
+          thief_position: {1, 4},
+          turn_actions_remaining: [:move, :look]
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 7})
+      assert state.detective_positions["d1"] == {3, 7}
+      assert :move in state.turn_actions_remaining
+      assert {4, 4} in Rules.valid_detective_destinations(state, "d1")
+      assert {:ok, _state} = Rules.end_turn(state)
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {4, 4})
+      assert state.detective_positions["d1"] == {4, 4}
+      assert {:ok, _state} = Rules.end_turn(state)
+    end
+
+    test "detective keeps original legal destinations open until ending turn" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          dice: {6, :eye},
+          thief_position: {1, 4},
+          turn_actions_remaining: [:move, :look]
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 7})
+      assert state.detective_positions["d1"] == {3, 7}
+      assert {9, 9} in Rules.valid_detective_destinations(state, "d1")
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {9, 9})
+      assert state.detective_positions["d1"] == {9, 9}
+      assert state.movement_spent == 6
+    end
+
+    test "detective can undo to the turn start and regain full movement" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          dice: {6, :eye},
+          thief_position: {1, 4},
+          turn_actions_remaining: [:move, :look]
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 7})
+      assert {3, 9} in Rules.valid_detective_destinations(state, "d1")
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 9})
+      assert state.detective_positions["d1"] == {3, 9}
+      assert {:error, :movement_required} = Rules.end_turn(state)
+      assert {4, 4} in Rules.valid_detective_destinations(state, "d1")
+    end
+
+    test "landing on thief waits for end turn before capture" do
       # d1 at {3,9}, thief at {3,8} (1 step west)
       state = %{
         base_state()
         | dice: {3, :eye},
+          current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
           thief_position: {3, 8},
           detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
           chase_mode: false,
           turn_actions_remaining: [:move, :look]
       }
 
-      {:ok, new_state} = Rules.move_detective(state, "d1", {3, 8})
-      assert new_state.phase == :game_over
-      assert new_state.winner == :detectives
-      assert new_state.game_over_reason == :caught
+      {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert state.phase == :playing
+      assert state.winner == nil
+      assert state.game_over_reason == nil
+
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.phase == :game_over
+      assert state.winner == :detectives
+      assert state.game_over_reason == :caught
     end
 
-    test "landing on a known thief on a targeted painting triggers capture" do
+    test "landing on a known thief on a targeted painting waits for end turn before capture" do
       state = %{
         base_state()
         | dice: {1, :eye},
+          current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
           thief_position: {3, 8},
           detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
           paintings: %{{3, 8} => :targeted},
@@ -647,11 +718,36 @@ defmodule MuseumCaper.Game.RulesMovementTest do
           turn_actions_remaining: [:move, :look]
       }
 
-      {:ok, new_state} = Rules.move_detective(state, "d1", {3, 8})
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert state.phase == :playing
+      assert state.winner == nil
+      assert state.game_over_reason == nil
 
-      assert new_state.phase == :game_over
-      assert new_state.winner == :detectives
-      assert new_state.game_over_reason == :caught
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.phase == :game_over
+      assert state.winner == :detectives
+      assert state.game_over_reason == :caught
+    end
+
+    test "undoing a thief landing before end turn avoids capture" do
+      state = %{
+        base_state()
+        | dice: {3, :eye},
+          current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          thief_position: {3, 8},
+          detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
+          chase_mode: true,
+          turn_actions_remaining: [:move, :look]
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert state.detective_positions["d1"] == {3, 8}
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 9})
+      assert state.detective_positions["d1"] == {3, 9}
+      assert {:error, :movement_required} = Rules.end_turn(state)
+      assert state.phase == :playing
     end
   end
 
