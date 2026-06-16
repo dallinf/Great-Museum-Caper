@@ -1361,16 +1361,71 @@ defmodule MuseumCaperWeb.GameLiveTest do
     {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
 
     assert has_element?(alice_view, "#game-sidebar[data-mobile-density='compact']")
+
+    assert has_element?(
+             alice_view,
+             "#game-sidebar[data-mobile-density='compact'].space-y-2.p-2.lg\\:space-y-3.lg\\:p-4"
+           )
+
     assert has_element?(alice_view, "#player-panel[data-mobile-density='compact']")
+
+    assert has_element?(
+             alice_view,
+             "#player-panel[data-mobile-density='compact'].space-y-1.lg\\:space-y-2"
+           )
+
     assert has_element?(alice_view, "#player-list[data-mobile-layout='compact-grid']")
+
+    assert has_element?(
+             alice_view,
+             "#player-list[data-mobile-layout='compact-grid'].grid.gap-1.lg\\:block.lg\\:space-y-2"
+           )
+
+    assert has_element?(alice_view, "#player-row-player-alice.text-xs.lg\\:text-sm")
     assert has_element?(alice_view, "#player-row-player-alice [data-turn-badge='compact']")
     assert has_element?(alice_view, "#player-row-player-alice [data-player-role-badge='compact']")
+
+    assert has_element?(
+             alice_view,
+             "#player-row-player-alice [data-player-role-badge='compact'].hidden.lg\\:inline-flex"
+           )
+
     assert has_element?(alice_view, "#turn-panel[data-mobile-density='compact']")
+
+    assert has_element?(
+             alice_view,
+             "#turn-panel[data-mobile-density='compact'].space-y-2.p-1\\.5.lg\\:space-y-3.lg\\:p-2"
+           )
+
     assert has_element?(alice_view, "#dice-readout[data-mobile-density='compact']")
+
+    assert has_element?(
+             alice_view,
+             "#dice-readout[data-mobile-density='compact'].gap-1\\.5.p-1\\.5.lg\\:gap-2.lg\\:p-2"
+           )
+
     assert has_element?(alice_view, "#movement-die[data-mobile-size='compact']")
+
+    assert has_element?(
+             alice_view,
+             "#movement-die[data-mobile-size='compact'].size-9.lg\\:size-12.xl\\:size-14"
+           )
+
     assert has_element?(alice_view, "#action-die[data-mobile-size='compact']")
+
+    assert has_element?(
+             alice_view,
+             "#action-die[data-mobile-size='compact'].size-9.lg\\:size-12.xl\\:size-14"
+           )
+
     assert has_element?(alice_view, "#look-pawn-button[data-mobile-density='compact']")
     assert has_element?(alice_view, "#camera-look-grid[data-mobile-layout='four-up']")
+
+    assert has_element?(
+             alice_view,
+             "#camera-look-grid[data-mobile-layout='four-up'].grid-cols-4.lg\\:grid-cols-2"
+           )
+
     assert has_element?(alice_view, "#look-camera-1[data-mobile-density='compact']")
   end
 
