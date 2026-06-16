@@ -523,7 +523,7 @@ defmodule MuseumCaper.Game.Rules do
 
   def use_eye_action(state, detective_id) do
     pos = state.detective_positions[detective_id]
-    state = %{state | turn_actions_remaining: List.delete(state.turn_actions_remaining, :look)}
+    state = spend_movement_after_eye_look(state)
 
     if Board.can_see?(pos, state.thief_position) do
       {:ok, :chase_triggered, spot_thief(state, {:look_pawn, :chase_triggered})}
@@ -533,7 +533,7 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   def use_eye_on_camera(state, _detective_id, camera_id) do
-    state = %{state | turn_actions_remaining: List.delete(state.turn_actions_remaining, :look)}
+    state = spend_movement_after_eye_look(state)
 
     if not state.power_active do
       {:ok, :power_off,
@@ -562,9 +562,20 @@ defmodule MuseumCaper.Game.Rules do
           {:ok, result, put_detective_result(state, {:look_camera, result})}
 
         true ->
-          {:ok, :no_sighting, put_detective_result(state, {:look_camera, :no_sighting})}
+          {:ok, :no_sighting,
+           put_detective_result(state, {:look_camera, {:no_sighting, camera_id}})}
       end
     end
+  end
+
+  defp spend_movement_after_eye_look(state) do
+    %{
+      state
+      | turn_actions_remaining:
+          state.turn_actions_remaining
+          |> List.delete(:look)
+          |> List.delete(:move)
+    }
   end
 
   def use_camera_scan(state) do

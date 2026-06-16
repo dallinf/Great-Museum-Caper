@@ -32,6 +32,7 @@ defmodule MuseumCaperWeb.GameLive do
             pending_escape_entry: nil,
             turn_banner_key: nil,
             revealed_mark_keys: [],
+            animated_mark_keys: %{},
             join_form:
               to_form(
                 %{
@@ -57,12 +58,14 @@ defmodule MuseumCaperWeb.GameLive do
     previous_state = socket.assigns.game_state
     previous_turn = banner_turn_player(previous_state)
     revealed_mark_keys = next_revealed_mark_keys(socket, previous_state, game_state)
+    animated_mark_keys = next_animated_mark_keys(socket, previous_state, game_state)
 
     socket =
       socket
       |> assign(
         game_state: game_state,
-        revealed_mark_keys: revealed_mark_keys
+        revealed_mark_keys: revealed_mark_keys,
+        animated_mark_keys: animated_mark_keys
       )
       |> assign_log_toast(previous_state, game_state)
       |> maybe_show_turn_banner(previous_turn, game_state)
@@ -98,6 +101,11 @@ defmodule MuseumCaperWeb.GameLive do
 
       {:noreply, socket}
     end
+  end
+
+  @impl true
+  def handle_event("change_join_form", %{"player" => player_params}, socket) do
+    {:noreply, assign(socket, :join_form, to_form(player_params, as: :player))}
   end
 
   @impl true
@@ -194,10 +202,12 @@ defmodule MuseumCaperWeb.GameLive do
 
   @impl true
   def handle_event("look_camera", %{"camera_id" => camera_id}, socket) do
+    camera_id = String.to_integer(camera_id)
+
     case Server.use_eye_on_camera(
            socket.assigns.server,
            socket.assigns.player_id,
-           String.to_integer(camera_id)
+           camera_id
          ) do
       {:ok, {:sighting, camera_id}} ->
         {:noreply, refresh_state(socket, camera_sighting_message(camera_id))}
@@ -209,7 +219,7 @@ defmodule MuseumCaperWeb.GameLive do
         {:noreply, refresh_state(socket, "The power is off, so cameras cannot see.")}
 
       {:ok, :no_sighting} ->
-        {:noreply, refresh_state(socket, "No thief in that camera line.")}
+        {:noreply, refresh_state(socket, camera_no_sighting_message(camera_id))}
     end
   end
 
@@ -306,21 +316,15 @@ defmodule MuseumCaperWeb.GameLive do
             id="game-sidebar"
             class="order-last min-h-0 space-y-3 overflow-y-auto rounded-lg border border-stone-700 bg-stone-900/95 p-3 shadow-2xl shadow-black/30 lg:order-none lg:p-4"
           >
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.22em] text-amber-300">
-                  Museum Caper
-                </p>
-                <h1 class="mt-1 text-2xl font-black tracking-normal text-stone-50">Night Shift</h1>
-              </div>
-              <span class="rounded-md border border-stone-700 px-2 py-1 text-xs font-semibold capitalize text-stone-300">
-                {@game_state.phase}
-              </span>
-            </div>
-
             <%= if needs_join?(@game_state, @player_id) do %>
               <div id="join-panel" class="rounded-lg border border-amber-300/30 bg-amber-200/10 p-3">
-                <.form for={@join_form} id="join-game-form" phx-submit="join_game" class="space-y-3">
+                <.form
+                  for={@join_form}
+                  id="join-game-form"
+                  phx-change="change_join_form"
+                  phx-submit="join_game"
+                  class="space-y-3"
+                >
                   <.input field={@join_form[:player_name]} type="text" label="Your name" />
                   <.pawn_color_picker
                     field={@join_form[:player_color]}
@@ -357,13 +361,18 @@ defmodule MuseumCaperWeb.GameLive do
                 <ul id="player-list" class="space-y-2">
                   <%= for player_id <- player_order(@game_state) do %>
                     <% player = @game_state.players[player_id] %>
-                    <li class={[
-                      "flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm",
-                      if(player_id == @player_id,
-                        do: "border-amber-300 bg-amber-300/10",
-                        else: "border-stone-700 bg-stone-800/80"
-                      )
-                    ]}>
+                    <% current_turn? = current_turn_player?(@game_state, player_id) %>
+                    <li
+                      class={[
+                        "flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm transition-colors",
+                        if(current_turn?,
+                          do: "border-amber-300 bg-amber-300/15 shadow-sm shadow-amber-950/30",
+                          else: "border-stone-700 bg-stone-800/80"
+                        )
+                      ]}
+                      id={"player-row-#{player_id}"}
+                      data-turn-status={if(current_turn?, do: "current", else: "waiting")}
+                    >
                       <span class="flex min-w-0 items-center gap-2">
                         <span
                           data-player-color={player_color_status(player.color)}
@@ -377,8 +386,15 @@ defmodule MuseumCaperWeb.GameLive do
                           {player.name}
                         </span>
                       </span>
-                      <span class="shrink-0 rounded bg-stone-950/80 px-2 py-1 text-[0.68rem] font-bold uppercase tracking-wide text-stone-300">
-                        {player.role}
+                      <span class="flex shrink-0 items-center gap-1">
+                        <%= if current_turn? do %>
+                          <span class="rounded bg-amber-300 px-2 py-1 text-[0.68rem] font-black uppercase tracking-wide text-stone-950">
+                            Turn
+                          </span>
+                        <% end %>
+                        <span class="rounded bg-stone-950/80 px-2 py-1 text-[0.68rem] font-bold uppercase tracking-wide text-stone-300">
+                          {player.role}
+                        </span>
                       </span>
                     </li>
                   <% end %>
@@ -498,6 +514,7 @@ defmodule MuseumCaperWeb.GameLive do
                     <.board_mark_stack
                       marks={cell_marks(@game_state, @player_id, pos)}
                       revealed_mark_keys={@revealed_mark_keys}
+                      animated_mark_keys={@animated_mark_keys}
                     />
                   </button>
                 <% else %>
@@ -530,6 +547,7 @@ defmodule MuseumCaperWeb.GameLive do
                       <.board_mark_stack
                         marks={cell_marks(@game_state, @player_id, pos)}
                         revealed_mark_keys={@revealed_mark_keys}
+                        animated_mark_keys={@animated_mark_keys}
                       />
                     </button>
                   <% else %>
@@ -1140,7 +1158,9 @@ defmodule MuseumCaperWeb.GameLive do
     socket
     |> assign(
       game_state: game_state,
-      revealed_mark_keys: revealed_mark_keys(previous_state, game_state, socket.assigns.player_id)
+      revealed_mark_keys:
+        revealed_mark_keys(previous_state, game_state, socket.assigns.player_id),
+      animated_mark_keys: animated_mark_keys(previous_state, game_state, socket.assigns.player_id)
     )
     |> assign_log_toast(previous_state, game_state)
     |> maybe_show_turn_banner(previous_turn, game_state)
@@ -1216,6 +1236,85 @@ defmodule MuseumCaperWeb.GameLive do
       revealed_mark_keys(previous_state, game_state, socket.assigns.player_id)
     end
   end
+
+  defp animated_mark_keys(nil, _game_state, _player_id), do: %{}
+
+  defp animated_mark_keys(previous_state, game_state, player_id) do
+    if pawn_movement_animation_enabled?(previous_state, game_state, player_id) do
+      previous_state
+      |> detective_movement_animation_keys(game_state)
+      |> Map.merge(thief_movement_animation_keys(previous_state, game_state, player_id))
+    else
+      %{}
+    end
+  end
+
+  defp next_animated_mark_keys(socket, previous_state, game_state) do
+    if previous_state == game_state do
+      socket.assigns.animated_mark_keys
+    else
+      animated_mark_keys(previous_state, game_state, socket.assigns.player_id)
+    end
+  end
+
+  defp pawn_movement_animation_enabled?(previous_state, game_state, player_id) do
+    previous_state.phase == :playing and game_state.phase == :playing and
+      game_state.current_turn != player_id
+  end
+
+  defp detective_movement_animation_keys(previous_state, game_state) do
+    Enum.reduce(game_state.detective_positions, %{}, fn {detective_id, new_pos}, keys ->
+      previous_pos = Map.get(previous_state.detective_positions, detective_id)
+
+      if moved_position?(previous_pos, new_pos) do
+        Map.put(
+          keys,
+          pawn_animation_identity({:detective, detective_id}),
+          pawn_movement_animation_key({:detective, detective_id}, previous_pos, new_pos)
+        )
+      else
+        keys
+      end
+    end)
+  end
+
+  defp thief_movement_animation_keys(previous_state, game_state, player_id) do
+    if thief_visible_to?(previous_state, player_id) and thief_visible_to?(game_state, player_id) and
+         moved_position?(previous_state.thief_position, game_state.thief_position) do
+      %{
+        pawn_animation_identity(:thief) =>
+          pawn_movement_animation_key(
+            :thief,
+            previous_state.thief_position,
+            game_state.thief_position
+          )
+      }
+    else
+      %{}
+    end
+  end
+
+  defp moved_position?(nil, _new_pos), do: false
+  defp moved_position?(_previous_pos, nil), do: false
+  defp moved_position?(pos, pos), do: false
+  defp moved_position?(_previous_pos, _new_pos), do: true
+
+  defp thief_visible_to?(state, player_id) do
+    player_role(state, player_id) == :thief or state.chase_mode or state.phase == :game_over
+  end
+
+  defp pawn_animation_identity({:detective, detective_id}), do: "detective:#{detective_id}"
+  defp pawn_animation_identity(:thief), do: "thief"
+
+  defp pawn_movement_animation_key({:detective, detective_id}, previous_pos, new_pos) do
+    "move:detective:#{detective_id}:#{position_key(previous_pos)}:#{position_key(new_pos)}"
+  end
+
+  defp pawn_movement_animation_key(:thief, previous_pos, new_pos) do
+    "move:thief:#{position_key(previous_pos)}:#{position_key(new_pos)}"
+  end
+
+  defp position_key({row, col}), do: "#{row}-#{col}"
 
   defp painting_reveal_keys(previous_state, game_state, player_id) do
     game_state.paintings
@@ -1317,6 +1416,12 @@ defmodule MuseumCaperWeb.GameLive do
   defp player_order(%{phase: :lobby, turn_order: order}), do: order
   defp player_order(state), do: Enum.uniq(state.turn_order)
 
+  defp current_turn_player?(state, player_id), do: turn_player_id(state) == player_id
+
+  defp turn_player_id(%{phase: :thief_entry, thief_player_id: thief_id}), do: thief_id
+  defp turn_player_id(%{phase: :playing, current_turn: current_turn}), do: current_turn
+  defp turn_player_id(_state), do: nil
+
   defp host?(%{phase: :lobby, turn_order: [host_id | _]}, player_id), do: host_id == player_id
   defp host?(_state, _player_id), do: false
 
@@ -1363,8 +1468,8 @@ defmodule MuseumCaperWeb.GameLive do
   defp detective_result_message({:look_camera, :power_off}),
     do: "The power is off, so cameras cannot see."
 
-  defp detective_result_message({:look_camera, :no_sighting}),
-    do: "No thief in that camera line."
+  defp detective_result_message({:look_camera, {:no_sighting, camera_id}}),
+    do: camera_no_sighting_message(camera_id)
 
   defp detective_result_message({:camera_scan, disabled_ids, {:sighting, sighting_ids}}),
     do: camera_scan_message(disabled_ids, sighting_ids)
@@ -1391,6 +1496,8 @@ defmodule MuseumCaperWeb.GameLive do
     do: "The thief checked the #{entry_label(entry_id)} lock. It was locked."
 
   defp camera_sighting_message(camera_id), do: "#{camera_names([camera_id])} spotted the thief."
+
+  defp camera_no_sighting_message(camera_id), do: "Camera #{camera_id} cannot see the thief."
 
   defp camera_scan_message(disabled_ids, sighting_ids) do
     "Camera scan found #{length(disabled_ids)} disabled cameras and #{camera_names(sighting_ids)} spotted the thief."
@@ -1692,6 +1799,7 @@ defmodule MuseumCaperWeb.GameLive do
       |> assign(:object_marks, object_marks(assigns.marks))
       |> assign(:pawn_marks, pawn_marks(assigns.marks))
       |> assign_new(:revealed_mark_keys, fn -> [] end)
+      |> assign_new(:animated_mark_keys, fn -> %{} end)
 
     ~H"""
     <span
@@ -1727,10 +1835,19 @@ defmodule MuseumCaperWeb.GameLive do
         class="absolute inset-0 z-20 flex h-full w-full flex-wrap items-center justify-center gap-0.5 p-0.5"
       >
         <%= for mark <- @pawn_marks do %>
+          <% animation_key = Map.get(@animated_mark_keys, mark_animation_identity(mark)) %>
+          <% movement_active = animation_key != nil %>
           <span
+            id={if(movement_active, do: mark_animation_dom_id(animation_key))}
+            phx-hook={if(movement_active, do: "BoardRevealHook")}
             data-board-mark={mark_kind(mark)}
             data-mark-status={mark_status(mark)}
-            class={mark_class(mark)}
+            data-animation-kind={if(movement_active, do: "move")}
+            data-move-animation-key={if(movement_active, do: animation_key)}
+            data-reveal-key={if(movement_active, do: animation_key)}
+            data-reveal-once={if(movement_active, do: "false")}
+            data-reveal-duration={if(movement_active, do: "1200")}
+            class={[mark_class(mark), movement_active && "board-move-mark"]}
           >
             {mark_label(mark)}
           </span>
@@ -1750,6 +1867,17 @@ defmodule MuseumCaperWeb.GameLive do
   defp mark_reveal_key({:painting, label, :removed}), do: "painting:#{label}:removed"
   defp mark_reveal_key({:camera, id, :disabled}), do: "camera:#{id}:disabled"
   defp mark_reveal_key(_mark), do: nil
+
+  defp mark_animation_identity({:detective, id, _color}),
+    do: pawn_animation_identity({:detective, id})
+
+  defp mark_animation_identity({:thief, _color}), do: pawn_animation_identity(:thief)
+  defp mark_animation_identity(_mark), do: nil
+
+  defp mark_animation_dom_id(animation_key) do
+    key = String.replace(animation_key, ~r/[^a-zA-Z0-9_-]+/, "-")
+    "board-animation-#{key}"
+  end
 
   defp mark_reveal_dom_id(mark) do
     key =
