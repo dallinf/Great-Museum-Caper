@@ -369,16 +369,24 @@ defmodule MuseumCaperWeb.GameLive do
                   <%= for player_id <- player_order(@game_state) do %>
                     <% player = @game_state.players[player_id] %>
                     <% current_turn? = current_turn_player?(@game_state, player_id) %>
+                    <% setup_thief? = setup_thief_player?(@game_state, player_id) %>
                     <li
                       class={[
                         "flex min-h-9 items-center justify-between gap-1 rounded-md border px-2 py-1 text-xs transition-colors lg:min-h-0 lg:gap-3 lg:px-3 lg:py-2 lg:text-sm",
-                        if(current_turn?,
-                          do: "border-amber-300 bg-amber-300/15 shadow-sm shadow-amber-950/30",
-                          else: "border-stone-700 bg-stone-800/80"
-                        )
+                        cond do
+                          current_turn? ->
+                            "border-amber-300 bg-amber-300/15 shadow-sm shadow-amber-950/30"
+
+                          setup_thief? ->
+                            "border-stone-300/80 bg-stone-700/90 shadow-sm shadow-stone-950/40"
+
+                          true ->
+                            "border-stone-700 bg-stone-800/80"
+                        end
                       ]}
                       id={"player-row-#{player_id}"}
                       data-turn-status={if(current_turn?, do: "current", else: "waiting")}
+                      data-setup-role={if(setup_thief?, do: "thief")}
                     >
                       <span class="flex min-w-0 items-center gap-1 lg:gap-2">
                         <span
@@ -403,10 +411,18 @@ defmodule MuseumCaperWeb.GameLive do
                           </span>
                         <% end %>
                         <span
-                          data-player-role-badge="compact"
-                          class="hidden rounded bg-stone-950/80 px-2 py-1 text-[0.68rem] font-bold uppercase tracking-wide text-stone-300 lg:inline-flex"
+                          data-player-role-badge={
+                            if(setup_thief?, do: "setup-thief", else: "compact")
+                          }
+                          class={[
+                            "rounded px-2 py-1 text-[0.68rem] font-bold uppercase tracking-wide",
+                            if(setup_thief?,
+                              do: "inline-flex bg-stone-100 text-stone-950",
+                              else: "hidden bg-stone-950/80 text-stone-300 lg:inline-flex"
+                            )
+                          ]}
                         >
-                          {player.role}
+                          {player_role_label(player.role)}
                         </span>
                       </span>
                     </li>
@@ -1486,6 +1502,11 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp current_turn_player?(state, player_id), do: turn_player_id(state) == player_id
 
+  defp setup_thief_player?(%{phase: :setup} = state, player_id),
+    do: player_role(state, player_id) == :thief
+
+  defp setup_thief_player?(_state, _player_id), do: false
+
   defp back_to_lobby_event(%{phase: :lobby}), do: nil
   defp back_to_lobby_event(_state), do: "return_to_lobby"
 
@@ -1508,6 +1529,10 @@ defmodule MuseumCaperWeb.GameLive do
       player -> player.role
     end
   end
+
+  defp player_role_label(:thief), do: "Thief"
+  defp player_role_label(:detective), do: "Detective"
+  defp player_role_label(role), do: role
 
   defp latest_detective_result(state, player_id) do
     if Map.has_key?(state.players, player_id), do: latest_detective_result(state)

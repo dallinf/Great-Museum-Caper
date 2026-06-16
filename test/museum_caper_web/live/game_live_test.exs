@@ -213,6 +213,34 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert has_element?(alice_view, "#museum-board")
   end
 
+  test "setup roster identifies the thief on compact mobile rows", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    start_fixed_setup_game!(game_id)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(alice_view, "#player-list[data-mobile-layout='compact-grid']")
+    assert has_element?(alice_view, "#player-row-player-theo[data-setup-role='thief']")
+
+    assert has_element?(
+             alice_view,
+             "#player-row-player-theo [data-player-role-badge='setup-thief'].inline-flex",
+             "Thief"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#player-row-player-theo [data-player-color='gray']"
+           )
+
+    refute has_element?(
+             alice_view,
+             "#player-row-player-alice [data-player-role-badge='setup-thief']"
+           )
+  end
+
   test "game screen prioritizes the board without the full app banner", %{
     conn: conn,
     game_id: game_id
