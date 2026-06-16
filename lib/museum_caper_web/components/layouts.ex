@@ -52,13 +52,13 @@ defmodule MuseumCaperWeb.Layouts do
   def app(assigns) do
     ~H"""
     <%= if @compact do %>
-      <details id="app-menu" class="fixed right-2 top-2 z-50 text-stone-100">
+      <details id="app-menu" class="fixed right-2 top-2 z-50 text-stone-100 md:right-3 md:top-3">
         <summary
           id="app-menu-button"
-          class="grid size-10 cursor-pointer list-none place-items-center rounded-md border border-stone-700 bg-stone-950/90 shadow-xl shadow-black/30 backdrop-blur transition hover:border-amber-300/70 hover:text-amber-100 [&::-webkit-details-marker]:hidden"
+          class="grid size-10 cursor-pointer list-none place-items-center rounded-md border border-stone-700 bg-stone-950/90 shadow-xl shadow-black/30 backdrop-blur transition hover:border-amber-300/70 hover:text-amber-100 md:size-12 lg:size-14 [&::-webkit-details-marker]:hidden"
           aria-label="Open game menu"
         >
-          <.icon name="hero-bars-3" class="size-5" />
+          <.icon name="hero-bars-3" class="size-5 md:size-6 lg:size-7" />
         </summary>
         <div class="absolute right-0 mt-2 w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-stone-700 bg-stone-950/95 p-2 shadow-2xl shadow-black/40 backdrop-blur md:w-80">
           <%= if @back_to_lobby_event do %>

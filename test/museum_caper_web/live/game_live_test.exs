@@ -218,6 +218,13 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(alice_view, "#app-main.min-h-screen")
     assert has_element?(alice_view, "#app-menu")
     assert has_element?(alice_view, "#app-menu-button")
+    assert has_element?(alice_view, "#app-menu-button.size-10.md\\:size-12.lg\\:size-14")
+
+    assert has_element?(
+             alice_view,
+             "#app-menu-button .hero-bars-3.size-5.md\\:size-6.lg\\:size-7"
+           )
+
     assert has_element?(alice_view, "#game-shell.h-dvh.overflow-hidden")
     assert has_element?(alice_view, "#game-layout.grid.h-full")
     assert has_element?(alice_view, "#game-sidebar.order-last")
