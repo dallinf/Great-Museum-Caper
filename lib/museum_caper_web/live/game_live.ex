@@ -314,7 +314,8 @@ defmodule MuseumCaperWeb.GameLive do
         >
           <aside
             id="game-sidebar"
-            class="order-last min-h-0 space-y-3 overflow-y-auto rounded-lg border border-stone-700 bg-stone-900/95 p-3 shadow-2xl shadow-black/30 lg:order-none lg:p-4"
+            data-mobile-density="compact"
+            class="order-last min-h-0 space-y-2 overflow-y-auto rounded-lg border border-stone-700 bg-stone-900/95 p-2 shadow-2xl shadow-black/30 sm:space-y-3 sm:p-3 lg:order-none lg:p-4"
           >
             <%= if needs_join?(@game_state, @player_id) do %>
               <div id="join-panel" class="rounded-lg border border-amber-300/30 bg-amber-200/10 p-3">
@@ -351,20 +352,26 @@ defmodule MuseumCaperWeb.GameLive do
               </div>
             <% end %>
 
-            <section id="player-panel" class="space-y-2">
-              <h2 class="text-sm font-bold uppercase tracking-[0.18em] text-stone-400">Players</h2>
+            <section id="player-panel" data-mobile-density="compact" class="space-y-1 sm:space-y-2">
+              <h2 class="text-[0.68rem] font-bold uppercase leading-none tracking-[0.18em] text-stone-400 sm:text-sm">
+                Players
+              </h2>
               <%= if map_size(@game_state.players) == 0 do %>
                 <p class="rounded-md border border-dashed border-stone-700 p-3 text-sm text-stone-500">
                   Waiting for players.
                 </p>
               <% else %>
-                <ul id="player-list" class="space-y-2">
+                <ul
+                  id="player-list"
+                  data-mobile-layout="compact-grid"
+                  class="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1 sm:block sm:space-y-2"
+                >
                   <%= for player_id <- player_order(@game_state) do %>
                     <% player = @game_state.players[player_id] %>
                     <% current_turn? = current_turn_player?(@game_state, player_id) %>
                     <li
                       class={[
-                        "flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm transition-colors",
+                        "flex min-h-9 items-center justify-between gap-1 rounded-md border px-2 py-1 text-xs transition-colors sm:min-h-0 sm:gap-3 sm:px-3 sm:py-2 sm:text-sm",
                         if(current_turn?,
                           do: "border-amber-300 bg-amber-300/15 shadow-sm shadow-amber-950/30",
                           else: "border-stone-700 bg-stone-800/80"
@@ -373,11 +380,11 @@ defmodule MuseumCaperWeb.GameLive do
                       id={"player-row-#{player_id}"}
                       data-turn-status={if(current_turn?, do: "current", else: "waiting")}
                     >
-                      <span class="flex min-w-0 items-center gap-2">
+                      <span class="flex min-w-0 items-center gap-1 sm:gap-2">
                         <span
                           data-player-color={player_color_status(player.color)}
                           class={[
-                            "block size-3.5 shrink-0 rounded-full border-2",
+                            "block size-3 shrink-0 rounded-full border-2 sm:size-3.5",
                             pawn_color_class(player.color)
                           ]}
                         >
@@ -386,13 +393,19 @@ defmodule MuseumCaperWeb.GameLive do
                           {player.name}
                         </span>
                       </span>
-                      <span class="flex shrink-0 items-center gap-1">
+                      <span class="flex shrink-0 items-center gap-0.5 sm:gap-1">
                         <%= if current_turn? do %>
-                          <span class="rounded bg-amber-300 px-2 py-1 text-[0.68rem] font-black uppercase tracking-wide text-stone-950">
+                          <span
+                            data-turn-badge="compact"
+                            class="rounded bg-amber-300 px-1 py-0.5 text-[0.58rem] font-black uppercase leading-none tracking-normal text-stone-950 sm:px-2 sm:py-1 sm:text-[0.68rem] sm:tracking-wide"
+                          >
                             Turn
                           </span>
                         <% end %>
-                        <span class="rounded bg-stone-950/80 px-2 py-1 text-[0.68rem] font-bold uppercase tracking-wide text-stone-300">
+                        <span
+                          data-player-role-badge="compact"
+                          class="hidden rounded bg-stone-950/80 px-2 py-1 text-[0.68rem] font-bold uppercase tracking-wide text-stone-300 sm:inline-flex"
+                        >
                           {player.role}
                         </span>
                       </span>
@@ -691,7 +704,11 @@ defmodule MuseumCaperWeb.GameLive do
   def turn_panel(assigns) do
     ~H"""
     <%= if turn_panel_visible?(@game_state, @player_id, @pending_escape_entry) do %>
-      <div id="turn-panel" class="space-y-3 rounded-lg border border-stone-700 bg-stone-900/80 p-2">
+      <div
+        id="turn-panel"
+        data-mobile-density="compact"
+        class="space-y-2 rounded-lg border border-stone-700 bg-stone-900/80 p-1.5 sm:space-y-3 sm:p-2"
+      >
         <%= if @game_state.dice do %>
           <.dice_readout dice={@game_state.dice} />
         <% end %>
@@ -700,7 +717,7 @@ defmodule MuseumCaperWeb.GameLive do
 
         <%= if my_turn?(@game_state, @player_id) do %>
           <% can_end_turn? = turn_can_end?(@game_state) %>
-          <div class="space-y-2">
+          <div class="space-y-1.5 sm:space-y-2">
             <.look_buttons game_state={@game_state} player_id={@player_id} />
             <.escape_choice_panel
               game_state={@game_state}
@@ -713,7 +730,7 @@ defmodule MuseumCaperWeb.GameLive do
               phx-click="end_turn"
               disabled={!can_end_turn?}
               class={[
-                "w-full rounded-md border px-3 py-2 text-sm font-bold transition",
+                "w-full rounded-md border px-3 py-1.5 text-xs font-bold transition sm:py-2 sm:text-sm",
                 if(can_end_turn?,
                   do:
                     "border-amber-200 bg-amber-300 text-stone-950 shadow-lg shadow-amber-950/30 hover:border-amber-100 hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200",
@@ -737,7 +754,8 @@ defmodule MuseumCaperWeb.GameLive do
     <div
       id="dice-readout"
       data-dice-readout="visual"
-      class="flex items-center justify-center gap-2 rounded-md border border-stone-700 bg-stone-950/75 p-2"
+      data-mobile-density="compact"
+      class="flex items-center justify-center gap-1.5 rounded-md border border-stone-700 bg-stone-950/75 p-1.5 sm:gap-2 sm:p-2"
     >
       <.movement_die value={elem(@dice, 0)} />
       <.action_die :if={elem(@dice, 1)} action={elem(@dice, 1)} />
@@ -753,8 +771,9 @@ defmodule MuseumCaperWeb.GameLive do
       id="movement-die"
       data-die-kind="movement"
       data-die-value={@value}
+      data-mobile-size="compact"
       aria-label={"Movement die: #{@value}"}
-      class="relative size-12 rounded-lg border-2 border-stone-200 bg-stone-50 shadow-lg shadow-black/30 md:size-14"
+      class="relative size-9 rounded-md border-2 border-stone-200 bg-stone-50 shadow-lg shadow-black/30 sm:size-12 sm:rounded-lg md:size-14"
     >
       <%= for position <- die_pip_positions(@value) do %>
         <span data-die-pip={@value} data-pip-position={position} class={die_pip_class(position)}>
@@ -772,11 +791,12 @@ defmodule MuseumCaperWeb.GameLive do
       id="action-die"
       data-die-kind="action"
       data-die-action={action_die_value(@action)}
+      data-mobile-size="compact"
       aria-label={"Action die: #{action_die_label(@action)}"}
-      class="grid size-12 place-items-center rounded-lg border-2 border-amber-200 bg-amber-100 text-stone-950 shadow-lg shadow-black/30 md:size-14"
+      class="grid size-9 place-items-center rounded-md border-2 border-amber-200 bg-amber-100 text-stone-950 shadow-lg shadow-black/30 sm:size-12 sm:rounded-lg md:size-14"
     >
       <span data-die-icon={action_die_value(@action)} class="grid place-items-center">
-        <.icon name={action_die_icon(@action)} class="size-7 md:size-8" />
+        <.icon name={action_die_icon(@action)} class="size-5 sm:size-7 md:size-8" />
       </span>
     </div>
     """
@@ -791,16 +811,16 @@ defmodule MuseumCaperWeb.GameLive do
     <%= if escape_choice_visible?(@game_state, @player_id, @pending_escape_entry) do %>
       <div
         id="escape-choice-panel"
-        class="space-y-2 rounded-lg border border-amber-300/40 bg-amber-300/10 p-3"
+        class="space-y-1.5 rounded-lg border border-amber-300/40 bg-amber-300/10 p-2 sm:space-y-2 sm:p-3"
       >
-        <p class="text-sm font-semibold text-amber-50">
+        <p class="text-xs font-semibold text-amber-50 sm:text-sm">
           Check this {escape_entry_type(@pending_escape_entry)} lock?
         </p>
         <button
           id="confirm-escape-button"
           type="button"
           phx-click="confirm_escape"
-          class="w-full rounded-md bg-amber-300 px-3 py-2 text-sm font-black text-stone-950 transition hover:bg-amber-200"
+          class="w-full rounded-md bg-amber-300 px-3 py-1.5 text-xs font-black text-stone-950 transition hover:bg-amber-200 sm:py-2 sm:text-sm"
         >
           Check lock
         </button>
@@ -808,7 +828,7 @@ defmodule MuseumCaperWeb.GameLive do
           id="cancel-escape-button"
           type="button"
           phx-click="cancel_escape"
-          class="w-full rounded-md border border-amber-200/70 px-3 py-2 text-sm font-bold text-amber-50 transition hover:bg-amber-300/10"
+          class="w-full rounded-md border border-amber-200/70 px-3 py-1.5 text-xs font-bold text-amber-50 transition hover:bg-amber-300/10 sm:py-2 sm:text-sm"
         >
           Stay inside
         </button>
@@ -827,20 +847,26 @@ defmodule MuseumCaperWeb.GameLive do
         <% :eye -> %>
           <button
             id="look-pawn-button"
+            data-mobile-density="compact"
             type="button"
             phx-click="look_pawn"
-            class="w-full rounded-md bg-sky-300 px-3 py-2 text-sm font-black text-stone-950 transition hover:bg-sky-200"
+            class="w-full rounded-md bg-sky-300 px-3 py-1.5 text-xs font-black text-stone-950 transition hover:bg-sky-200 sm:py-2 sm:text-sm"
           >
             Look from pawn
           </button>
-          <div class="grid grid-cols-2 gap-2">
+          <div
+            id="camera-look-grid"
+            data-mobile-layout="four-up"
+            class="grid grid-cols-4 gap-1 sm:grid-cols-2 sm:gap-2"
+          >
             <%= for {camera_id, camera} <- selectable_look_cameras(@game_state, @player_id) do %>
               <button
                 id={"look-camera-#{camera_id}"}
+                data-mobile-density="compact"
                 type="button"
                 phx-click="look_camera"
                 phx-value-camera_id={camera_id}
-                class="rounded-md border border-sky-300/60 px-2 py-2 text-xs font-bold text-sky-100 transition hover:bg-sky-300/10"
+                class="rounded-md border border-sky-300/60 px-1 py-1.5 text-[0.68rem] font-bold leading-tight text-sky-100 transition hover:bg-sky-300/10 sm:px-2 sm:py-2 sm:text-xs"
               >
                 Camera {camera_id}
               </button>
@@ -851,7 +877,7 @@ defmodule MuseumCaperWeb.GameLive do
             id="camera-scan-button"
             type="button"
             phx-click="camera_scan"
-            class="w-full rounded-md bg-sky-300 px-3 py-2 text-sm font-black text-stone-950 transition hover:bg-sky-200"
+            class="w-full rounded-md bg-sky-300 px-3 py-1.5 text-xs font-black text-stone-950 transition hover:bg-sky-200 sm:py-2 sm:text-sm"
           >
             Camera scan
           </button>
@@ -859,7 +885,7 @@ defmodule MuseumCaperWeb.GameLive do
           <%= if motion_decision_pending?(@game_state) do %>
             <p
               id="motion-decision-waiting"
-              class="rounded-md border border-dashed border-stone-600 px-3 py-2 text-sm text-stone-400"
+              class="rounded-md border border-dashed border-stone-600 px-3 py-1.5 text-xs text-stone-400 sm:py-2 sm:text-sm"
             >
               Waiting for the thief to choose the motion reading.
             </p>
@@ -868,7 +894,7 @@ defmodule MuseumCaperWeb.GameLive do
               id="motion-detector-button"
               type="button"
               phx-click="motion_detector"
-              class="w-full rounded-md bg-sky-300 px-3 py-2 text-sm font-black text-stone-950 transition hover:bg-sky-200"
+              class="w-full rounded-md bg-sky-300 px-3 py-1.5 text-xs font-black text-stone-950 transition hover:bg-sky-200 sm:py-2 sm:text-sm"
             >
               Motion detector
             </button>
@@ -893,15 +919,15 @@ defmodule MuseumCaperWeb.GameLive do
     <%= if motion_decision_buttons_visible?(@game_state, @player_id) do %>
       <div
         id="motion-decision-panel"
-        class="space-y-2 rounded-lg border border-cyan-300/40 bg-cyan-300/10 p-3"
+        class="space-y-1.5 rounded-lg border border-cyan-300/40 bg-cyan-300/10 p-2 sm:space-y-2 sm:p-3"
       >
-        <p class="text-sm font-semibold text-cyan-50">Motion detector choice</p>
+        <p class="text-xs font-semibold text-cyan-50 sm:text-sm">Motion detector choice</p>
         <button
           id="allow-motion-button"
           type="button"
           phx-click="motion_detector_decision"
           phx-value-decision="allow"
-          class="w-full rounded-md bg-cyan-300 px-3 py-2 text-sm font-black text-stone-950 transition hover:bg-cyan-200"
+          class="w-full rounded-md bg-cyan-300 px-3 py-1.5 text-xs font-black text-stone-950 transition hover:bg-cyan-200 sm:py-2 sm:text-sm"
         >
           Allow reading
         </button>
@@ -910,7 +936,7 @@ defmodule MuseumCaperWeb.GameLive do
           type="button"
           phx-click="motion_detector_decision"
           phx-value-decision="cut"
-          class="w-full rounded-md border border-cyan-200/70 px-3 py-2 text-sm font-bold text-cyan-50 transition hover:bg-cyan-300/10"
+          class="w-full rounded-md border border-cyan-200/70 px-3 py-1.5 text-xs font-bold text-cyan-50 transition hover:bg-cyan-300/10 sm:py-2 sm:text-sm"
         >
           Cut reading ({@game_state.motion_snips_remaining})
         </button>
@@ -1568,28 +1594,31 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp die_pip_class(position) do
     [
-      "absolute block size-2 rounded-full bg-stone-950 shadow-sm md:size-2.5",
+      "absolute block size-1.5 rounded-full bg-stone-950 shadow-sm sm:size-2 md:size-2.5",
       die_pip_position_class(position)
     ]
   end
 
-  defp die_pip_position_class(:top_left), do: "left-2 top-2 md:left-2.5 md:top-2.5"
-  defp die_pip_position_class(:top_right), do: "right-2 top-2 md:right-2.5 md:top-2.5"
+  defp die_pip_position_class(:top_left),
+    do: "left-1.5 top-1.5 sm:left-2 sm:top-2 md:left-2.5 md:top-2.5"
+
+  defp die_pip_position_class(:top_right),
+    do: "right-1.5 top-1.5 sm:right-2 sm:top-2 md:right-2.5 md:top-2.5"
 
   defp die_pip_position_class(:middle_left),
-    do: "left-2 top-1/2 -translate-y-1/2 md:left-2.5"
+    do: "left-1.5 top-1/2 -translate-y-1/2 sm:left-2 md:left-2.5"
 
   defp die_pip_position_class(:middle_right),
-    do: "right-2 top-1/2 -translate-y-1/2 md:right-2.5"
+    do: "right-1.5 top-1/2 -translate-y-1/2 sm:right-2 md:right-2.5"
 
   defp die_pip_position_class(:center),
     do: "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
 
   defp die_pip_position_class(:bottom_left),
-    do: "bottom-2 left-2 md:bottom-2.5 md:left-2.5"
+    do: "bottom-1.5 left-1.5 sm:bottom-2 sm:left-2 md:bottom-2.5 md:left-2.5"
 
   defp die_pip_position_class(:bottom_right),
-    do: "bottom-2 right-2 md:bottom-2.5 md:right-2.5"
+    do: "bottom-1.5 right-1.5 sm:bottom-2 sm:right-2 md:bottom-2.5 md:right-2.5"
 
   defp action_die_value(action), do: action |> Atom.to_string() |> String.replace("_", "-")
 

@@ -1342,6 +1342,31 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(alice_view, "#dice-readout", "Die:")
   end
 
+  test "playing controls use compact mobile layout", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_detective_turn!(pid, {6, :eye})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(alice_view, "#game-sidebar[data-mobile-density='compact']")
+    assert has_element?(alice_view, "#player-panel[data-mobile-density='compact']")
+    assert has_element?(alice_view, "#player-list[data-mobile-layout='compact-grid']")
+    assert has_element?(alice_view, "#player-row-player-alice [data-turn-badge='compact']")
+    assert has_element?(alice_view, "#player-row-player-alice [data-player-role-badge='compact']")
+    assert has_element?(alice_view, "#turn-panel[data-mobile-density='compact']")
+    assert has_element?(alice_view, "#dice-readout[data-mobile-density='compact']")
+    assert has_element?(alice_view, "#movement-die[data-mobile-size='compact']")
+    assert has_element?(alice_view, "#action-die[data-mobile-size='compact']")
+    assert has_element?(alice_view, "#look-pawn-button[data-mobile-density='compact']")
+    assert has_element?(alice_view, "#camera-look-grid[data-mobile-layout='four-up']")
+    assert has_element?(alice_view, "#look-camera-1[data-mobile-density='compact']")
+  end
+
   test "visible thief turns only show the movement die", %{
     conn: conn,
     game_id: game_id
