@@ -16,6 +16,7 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
     {:ok, view, _html} = live(conn, "/")
     assert has_element?(view, "#create-room-form")
     assert has_element?(view, "#empty-rooms")
+    refute has_element?(view, "#back-to-lobby-link")
     refute has_element?(view, "[data-phx-theme]")
   end
 

@@ -231,16 +231,33 @@ defmodule MuseumCaperWeb.GameLiveTest do
            )
   end
 
-  test "compact game menu links back to the lobby", %{conn: conn, game_id: game_id} do
+  test "compact game menu hides back-to-lobby while room is in the lobby", %{
+    conn: conn,
+    game_id: game_id
+  } do
     {:ok, _pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: %{})
 
     {:ok, view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
 
-    assert has_element?(view, "#app-menu #back-to-lobby-link[href='/']", "Back to lobby")
+    refute has_element?(view, "#app-menu #back-to-lobby-link")
     assert has_element?(view, "#wake-lock-control[phx-hook='WakeLockHook']")
     assert has_element?(view, "#wake-lock-toggle[type='button']", "Keep screen awake")
     assert has_element?(view, "#wake-lock-status[aria-live='polite']", "Off")
     refute has_element?(view, "#app-menu [data-phx-theme]")
+  end
+
+  test "compact game menu links back to the lobby after the game starts", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    {:ok, _pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: %{})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+    {:ok, _bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
+
+    render_click(element(alice_view, "#start-game-button"))
+
+    assert has_element?(alice_view, "#app-menu #back-to-lobby-link[href='/']", "Back to lobby")
   end
 
   test "host back-to-lobby link removes the game from the lobby", %{conn: conn} do

@@ -299,7 +299,7 @@ defmodule MuseumCaperWeb.GameLive do
     ~H"""
     <Layouts.app
       flash={@flash}
-      back_to_lobby_event="return_to_lobby"
+      back_to_lobby_event={back_to_lobby_event(@game_state)}
       compact={true}
       game_log={@game_state.game_log}
       recent_result={latest_detective_result(@game_state, @player_id)}
@@ -1418,6 +1418,9 @@ defmodule MuseumCaperWeb.GameLive do
   defp player_order(state), do: Enum.uniq(state.turn_order)
 
   defp current_turn_player?(state, player_id), do: turn_player_id(state) == player_id
+
+  defp back_to_lobby_event(%{phase: :lobby}), do: nil
+  defp back_to_lobby_event(_state), do: "return_to_lobby"
 
   defp turn_player_id(%{phase: :thief_entry, thief_player_id: thief_id}), do: thief_id
   defp turn_player_id(%{phase: :playing, current_turn: current_turn}), do: current_turn

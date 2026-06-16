@@ -71,15 +71,6 @@ defmodule MuseumCaperWeb.Layouts do
               <.icon name="hero-arrow-left" class="size-4" />
               <span>Back to lobby</span>
             </.link>
-          <% else %>
-            <.link
-              id="back-to-lobby-link"
-              navigate={~p"/"}
-              class="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-stone-200 transition hover:bg-stone-800 hover:text-amber-100"
-            >
-              <.icon name="hero-arrow-left" class="size-4" />
-              <span>Back to lobby</span>
-            </.link>
           <% end %>
           <div class="mt-2 border-t border-stone-800 pt-2">
             <.wake_lock_control />
@@ -131,15 +122,6 @@ defmodule MuseumCaperWeb.Layouts do
                 id="back-to-lobby-link"
                 href={~p"/"}
                 phx-click={@back_to_lobby_event}
-                class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-700 bg-stone-900 px-3 text-sm font-bold text-stone-200 transition hover:border-amber-300/70 hover:bg-stone-800 hover:text-amber-100"
-              >
-                <.icon name="hero-arrow-left" class="size-4" />
-                <span>Back to lobby</span>
-              </.link>
-            <% else %>
-              <.link
-                id="back-to-lobby-link"
-                navigate={~p"/"}
                 class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-700 bg-stone-900 px-3 text-sm font-bold text-stone-200 transition hover:border-amber-300/70 hover:bg-stone-800 hover:text-amber-100"
               >
                 <.icon name="hero-arrow-left" class="size-4" />
