@@ -773,6 +773,30 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.game_over_reason == :caught
     end
 
+    test "landing on a known thief on stolen artwork waits for end turn before capture" do
+      state = %{
+        base_state()
+        | dice: {1, :eye},
+          current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          thief_position: {3, 8},
+          detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
+          paintings: %{{3, 8} => :removed},
+          chase_mode: true,
+          turn_actions_remaining: [:move, :look]
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert state.phase == :playing
+      assert state.winner == nil
+      assert state.game_over_reason == nil
+
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.phase == :game_over
+      assert state.winner == :detectives
+      assert state.game_over_reason == :caught
+    end
+
     test "undoing a thief landing before end turn avoids capture" do
       state = %{
         base_state()
