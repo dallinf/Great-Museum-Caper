@@ -20,6 +20,23 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
     refute has_element?(view, "[data-phx-theme]")
   end
 
+  test "renders production lobby copy", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/")
+
+    assert has_element?(view, "#app-header", "Online game")
+
+    assert has_element?(
+             view,
+             "#lobby-intro-copy",
+             "Create a room and share it with players. Start the game when everyone has joined."
+           )
+
+    refute has_element?(view, "#app-header", "local prototype")
+    refute has_element?(view, "#lobby-intro-copy", "local room")
+    refute has_element?(view, "#lobby-intro-copy", "private window")
+    refute has_element?(view, "#lobby-intro-copy", "second player")
+  end
+
   test "lobby text inputs use the fixed app theme", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/")
 

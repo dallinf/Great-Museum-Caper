@@ -112,7 +112,7 @@ defmodule MuseumCaperWeb.Layouts do
                 Museum Caper
               </span>
               <span class="block text-xs text-stone-500 transition group-hover:text-stone-300">
-                local prototype
+                Online game
               </span>
             </span>
           </.link>

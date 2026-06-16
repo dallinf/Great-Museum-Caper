@@ -122,8 +122,8 @@ defmodule MuseumCaperWeb.LobbyLive do
         <section class="rounded-lg border border-stone-700 bg-stone-900 p-5 shadow-2xl shadow-black/30">
           <p class="text-xs font-black uppercase tracking-[0.22em] text-amber-300">Private room</p>
           <h1 class="mt-2 text-4xl font-black tracking-normal text-stone-50">Set the caper.</h1>
-          <p class="mt-3 text-sm leading-6 text-stone-400">
-            Create a local room, open it in another browser or private window, and join as the second player.
+          <p id="lobby-intro-copy" class="mt-3 text-sm leading-6 text-stone-400">
+            Create a room and share it with players. Start the game when everyone has joined.
           </p>
 
           <.form

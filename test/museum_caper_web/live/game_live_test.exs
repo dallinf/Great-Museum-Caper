@@ -64,6 +64,16 @@ defmodule MuseumCaperWeb.GameLiveTest do
     {:ok, view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
 
     assert has_element?(view, "#waiting-room")
+
+    assert has_element?(
+             view,
+             "#waiting-room-copy",
+             "Invite players to this room, then start the game when everyone has joined."
+           )
+
+    refute has_element?(view, "#waiting-room-copy", "another browser")
+    refute has_element?(view, "#waiting-room-copy", "private window")
+    refute has_element?(view, "#waiting-room-copy", "second player")
     assert has_element?(view, "#player-list")
     assert has_element?(view, "#start-game-button")
   end

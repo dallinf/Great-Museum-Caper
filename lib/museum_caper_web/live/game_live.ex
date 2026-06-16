@@ -430,8 +430,8 @@ defmodule MuseumCaperWeb.GameLive do
                   id="waiting-room"
                   class="space-y-3 rounded-lg border border-stone-700 bg-stone-800 p-3"
                 >
-                  <p class="text-sm text-stone-300">
-                    Open this room in another browser tab or private window, join as a second player, then start.
+                  <p id="waiting-room-copy" class="text-sm text-stone-300">
+                    Invite players to this room, then start the game when everyone has joined.
                   </p>
                   <%= if host?(@game_state, @player_id) do %>
                     <% start_enabled? = start_game_enabled?(@game_state) %>
