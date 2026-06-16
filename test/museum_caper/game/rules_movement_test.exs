@@ -544,7 +544,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert {3, 8} in destinations
     end
 
-    test "cannot land on or move through active painting cells" do
+    test "can land on and move through active painting cells" do
       state = %{
         base_state()
         | dice: {5, :eye},
@@ -554,8 +554,22 @@ defmodule MuseumCaper.Game.RulesMovementTest do
 
       destinations = Rules.valid_detective_destinations(state, "d1")
 
-      refute {3, 8} in destinations
-      refute {3, 7} in destinations
+      assert {3, 8} in destinations
+      assert {3, 7} in destinations
+    end
+
+    test "can cross artwork spaces inside the white room" do
+      state = %{
+        base_state()
+        | dice: {6, :eye},
+          detective_positions: %{"d1" => {6, 6}, "d2" => {9, 5}},
+          paintings: %{{4, 5} => :present}
+      }
+
+      destinations = Rules.valid_detective_destinations(state, "d1")
+
+      assert {4, 5} in destinations
+      assert {4, 6} in destinations
     end
 
     test "can use a painting space after the thief removes it" do

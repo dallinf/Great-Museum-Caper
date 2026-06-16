@@ -252,27 +252,19 @@ defmodule MuseumCaper.Game.Rules do
     |> MapSet.to_list()
   end
 
-  defp active_painting_cells(state) do
-    state.paintings
-    |> Enum.reject(fn {_pos, status} -> status == :removed end)
-    |> Enum.map(fn {pos, _status} -> pos end)
-    |> MapSet.new()
-  end
-
-  defp blocking_painting_cells(state) do
-    blocked = active_painting_cells(state)
-
-    if state.chase_mode and state.paintings[state.thief_position] == :targeted do
-      MapSet.delete(blocked, state.thief_position)
-    else
-      blocked
-    end
-  end
-
   defp detective_movement_blocked_cells(state) do
     state
-    |> blocking_painting_cells()
+    |> hidden_thief_painting_cells()
     |> MapSet.union(MapSet.new(Board.external_door_cells()))
+  end
+
+  defp hidden_thief_painting_cells(%{chase_mode: true}), do: MapSet.new()
+
+  defp hidden_thief_painting_cells(state) do
+    state.paintings
+    |> Enum.filter(fn {_pos, status} -> status == :targeted end)
+    |> Enum.map(fn {pos, _status} -> pos end)
+    |> MapSet.new()
   end
 
   defp bfs_distances(start, max_steps, _blocked) when max_steps <= 0, do: %{start => 0}
