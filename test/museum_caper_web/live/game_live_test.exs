@@ -861,6 +861,12 @@ defmodule MuseumCaperWeb.GameLiveTest do
              "Your Turn"
            )
 
+    assert has_element?(
+             alice_view,
+             "#turn-banner.pointer-events-none [data-turn-banner-panel][data-turn-banner-dismissible='true'].pointer-events-auto.cursor-pointer[tabindex='0'][aria-label='Dismiss your turn banner']",
+             "Your Turn"
+           )
+
     refute has_element?(thief_view, "#turn-banner", "Your Turn")
   end
 

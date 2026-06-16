@@ -89,13 +89,25 @@ const TurnBannerHook = {
   mounted() {
     installAudioUnlock();
     this.currentKey = null;
+    this.dismissBanner = event => {
+      event.preventDefault();
+      this.hide();
+    };
+    this.handleDismissKeydown = event => {
+      if (["Enter", " ", "Escape"].includes(event.key)) {
+        this.dismissBanner(event);
+      }
+    };
+    this.bindDismiss();
     this.showIfNew();
   },
   updated() {
+    this.bindDismiss();
     this.showIfNew();
   },
   destroyed() {
     clearTimeout(this.timer);
+    this.unbindDismiss();
   },
   showIfNew() {
     const key = this.el.dataset.turnBannerKey;
@@ -110,6 +122,8 @@ const TurnBannerHook = {
   show() {
     const panel = this.panel();
     clearTimeout(this.timer);
+    this.hidden = false;
+    panel.style.pointerEvents = "auto";
 
     panel.style.transition = "none";
     panel.style.opacity = "0";
@@ -132,12 +146,41 @@ const TurnBannerHook = {
     }
   },
   hide() {
+    if (this.hidden) {
+      return;
+    }
+
+    this.hidden = true;
+    clearTimeout(this.timer);
+
     const panel = this.panel();
+    panel.style.pointerEvents = "none";
     panel.style.transition = this.prefersReducedMotion()
       ? "none"
       : "opacity 0.28s ease-in, transform 0.28s ease-in";
     panel.style.opacity = "0";
     panel.style.transform = "translateY(-0.5rem) scale(0.98)";
+  },
+  bindDismiss() {
+    const panel = this.panel();
+
+    if (this.dismissPanel === panel) {
+      return;
+    }
+
+    this.unbindDismiss();
+    this.dismissPanel = panel;
+    this.dismissPanel.addEventListener("click", this.dismissBanner);
+    this.dismissPanel.addEventListener("keydown", this.handleDismissKeydown);
+  },
+  unbindDismiss() {
+    if (!this.dismissPanel) {
+      return;
+    }
+
+    this.dismissPanel.removeEventListener("click", this.dismissBanner);
+    this.dismissPanel.removeEventListener("keydown", this.handleDismissKeydown);
+    this.dismissPanel = null;
   },
   panel() {
     return this.el.querySelector("[data-turn-banner-panel]") || this.el;

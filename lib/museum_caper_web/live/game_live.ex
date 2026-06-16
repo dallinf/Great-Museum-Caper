@@ -626,8 +626,11 @@ defmodule MuseumCaperWeb.GameLive do
           >
             <div
               data-turn-banner-panel
+              data-turn-banner-dismissible="true"
               data-turn-banner-size="massive"
-              class="max-w-full translate-y-4 scale-95 rounded-lg border-4 border-amber-200 bg-stone-950/90 px-6 py-5 text-center text-[clamp(3rem,18vw,10rem)] font-black uppercase leading-none tracking-normal text-amber-100 opacity-0 shadow-2xl shadow-amber-950/50 backdrop-blur-sm transition-[opacity,transform] duration-200 sm:px-10 sm:py-7"
+              tabindex="0"
+              aria-label="Dismiss your turn banner"
+              class="pointer-events-auto max-w-full translate-y-4 scale-95 cursor-pointer rounded-lg border-4 border-amber-200 bg-stone-950/90 px-6 py-5 text-center text-[clamp(3rem,18vw,10rem)] font-black uppercase leading-none tracking-normal text-amber-100 opacity-0 shadow-2xl shadow-amber-950/50 backdrop-blur-sm transition-[opacity,transform] duration-200 sm:px-10 sm:py-7"
             >
               Your Turn
             </div>
