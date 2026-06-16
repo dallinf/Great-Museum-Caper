@@ -417,7 +417,7 @@ defmodule MuseumCaperWeb.GameLive do
                           class={[
                             "rounded px-2 py-1 text-[0.68rem] font-bold uppercase tracking-wide",
                             if(setup_thief?,
-                              do: "inline-flex bg-stone-100 text-stone-950",
+                              do: "hidden bg-stone-100 text-stone-950 lg:inline-flex",
                               else: "hidden bg-stone-950/80 text-stone-300 lg:inline-flex"
                             )
                           ]}

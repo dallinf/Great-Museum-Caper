@@ -213,7 +213,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert has_element?(alice_view, "#museum-board")
   end
 
-  test "setup roster identifies the thief on compact mobile rows", %{
+  test "setup roster identifies the thief without a mobile badge", %{
     conn: conn,
     game_id: game_id
   } do
@@ -226,7 +226,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#player-row-player-theo [data-player-role-badge='setup-thief'].inline-flex",
+             "#player-row-player-theo [data-player-role-badge='setup-thief'].hidden.lg\\:inline-flex",
              "Thief"
            )
 
