@@ -1363,6 +1363,24 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(alice_view, "#motion-detector-button")
   end
 
+  test "turn panel is hidden when it has no visible content", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{server_state.game_state | dice: nil}
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    refute has_element?(alice_view, "#turn-panel")
+  end
+
   test "detective can move through another detective but cannot land there", %{
     conn: conn,
     game_id: game_id

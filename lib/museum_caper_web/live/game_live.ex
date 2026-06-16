@@ -690,41 +690,43 @@ defmodule MuseumCaperWeb.GameLive do
 
   def turn_panel(assigns) do
     ~H"""
-    <div id="turn-panel" class="space-y-3 rounded-lg border border-stone-700 bg-stone-900/80 p-2">
-      <%= if @game_state.dice do %>
-        <.dice_readout dice={@game_state.dice} />
-      <% end %>
+    <%= if turn_panel_visible?(@game_state, @player_id, @pending_escape_entry) do %>
+      <div id="turn-panel" class="space-y-3 rounded-lg border border-stone-700 bg-stone-900/80 p-2">
+        <%= if @game_state.dice do %>
+          <.dice_readout dice={@game_state.dice} />
+        <% end %>
 
-      <.motion_decision_buttons game_state={@game_state} player_id={@player_id} />
+        <.motion_decision_buttons game_state={@game_state} player_id={@player_id} />
 
-      <%= if my_turn?(@game_state, @player_id) do %>
-        <% can_end_turn? = turn_can_end?(@game_state) %>
-        <div class="space-y-2">
-          <.look_buttons game_state={@game_state} player_id={@player_id} />
-          <.escape_choice_panel
-            game_state={@game_state}
-            player_id={@player_id}
-            pending_escape_entry={@pending_escape_entry}
-          />
-          <button
-            id="end-turn-button"
-            type="button"
-            phx-click="end_turn"
-            disabled={!can_end_turn?}
-            class={[
-              "w-full rounded-md border px-3 py-2 text-sm font-bold transition",
-              if(can_end_turn?,
-                do:
-                  "border-amber-200 bg-amber-300 text-stone-950 shadow-lg shadow-amber-950/30 hover:border-amber-100 hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200",
-                else: "cursor-not-allowed border-stone-700 bg-stone-900 text-stone-500"
-              )
-            ]}
-          >
-            {if(can_end_turn?, do: "End turn", else: "Move first")}
-          </button>
-        </div>
-      <% end %>
-    </div>
+        <%= if my_turn?(@game_state, @player_id) do %>
+          <% can_end_turn? = turn_can_end?(@game_state) %>
+          <div class="space-y-2">
+            <.look_buttons game_state={@game_state} player_id={@player_id} />
+            <.escape_choice_panel
+              game_state={@game_state}
+              player_id={@player_id}
+              pending_escape_entry={@pending_escape_entry}
+            />
+            <button
+              id="end-turn-button"
+              type="button"
+              phx-click="end_turn"
+              disabled={!can_end_turn?}
+              class={[
+                "w-full rounded-md border px-3 py-2 text-sm font-bold transition",
+                if(can_end_turn?,
+                  do:
+                    "border-amber-200 bg-amber-300 text-stone-950 shadow-lg shadow-amber-950/30 hover:border-amber-100 hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200",
+                  else: "cursor-not-allowed border-stone-700 bg-stone-900 text-stone-500"
+                )
+              ]}
+            >
+              {if(can_end_turn?, do: "End turn", else: "Move first")}
+            </button>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
     """
   end
 
@@ -888,7 +890,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   def motion_decision_buttons(assigns) do
     ~H"""
-    <%= if player_role(@game_state, @player_id) == :thief and motion_decision_pending?(@game_state) do %>
+    <%= if motion_decision_buttons_visible?(@game_state, @player_id) do %>
       <div
         id="motion-decision-panel"
         class="space-y-2 rounded-lg border border-cyan-300/40 bg-cyan-300/10 p-3"
@@ -1598,7 +1600,17 @@ defmodule MuseumCaperWeb.GameLive do
   defp action_die_icon(:camera_scan), do: "hero-camera-solid"
   defp action_die_icon(:motion), do: "hero-signal-solid"
 
+  defp turn_panel_visible?(state, player_id, pending_escape_entry) do
+    state.dice != nil or my_turn?(state, player_id) or
+      motion_decision_buttons_visible?(state, player_id) or
+      escape_choice_visible?(state, player_id, pending_escape_entry)
+  end
+
   defp my_turn?(state, player_id), do: state.current_turn == player_id
+
+  defp motion_decision_buttons_visible?(state, player_id) do
+    player_role(state, player_id) == :thief and motion_decision_pending?(state)
+  end
 
   defp motion_decision_pending?(state) do
     state.phase == :playing and state.dice != nil and elem(state.dice, 1) == :motion and
