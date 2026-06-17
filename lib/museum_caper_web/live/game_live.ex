@@ -27,8 +27,7 @@ defmodule MuseumCaperWeb.GameLive do
             player_color: player_color,
             notification: nil,
             notification_id: nil,
-            log_toast: nil,
-            log_toast_key: nil,
+            artwork_reveal_toast: nil,
             pending_escape_entry: nil,
             turn_banner_key: nil,
             revealed_mark_keys: [],
@@ -65,9 +64,9 @@ defmodule MuseumCaperWeb.GameLive do
       |> assign(
         game_state: game_state,
         revealed_mark_keys: revealed_mark_keys,
-        animated_mark_keys: animated_mark_keys
+        animated_mark_keys: animated_mark_keys,
+        artwork_reveal_toast: next_artwork_reveal_toast(socket, previous_state, game_state)
       )
-      |> assign_log_toast(previous_state, game_state)
       |> maybe_show_turn_banner(previous_turn, game_state)
 
     {:noreply, socket}
@@ -109,10 +108,12 @@ defmodule MuseumCaperWeb.GameLive do
   end
 
   @impl true
-  def handle_event("start_game", _params, socket) do
-    case Server.start_game(socket.assigns.server, socket.assigns.player_id) do
+  def handle_event("start_game", params, socket) do
+    game_mode = start_game_mode(params)
+
+    case Server.start_game(socket.assigns.server, socket.assigns.player_id, game_mode: game_mode) do
       {:ok, _state} ->
-        {:noreply, refresh_state(socket, "Game started. Detectives place the museum setup.")}
+        {:noreply, refresh_state(socket, start_game_message(game_mode))}
 
       {:error, :not_enough_players} ->
         {:noreply, put_notice(socket, "Invite at least two players before starting.")}
@@ -301,7 +302,6 @@ defmodule MuseumCaperWeb.GameLive do
       flash={@flash}
       back_to_lobby_event={back_to_lobby_event(@game_state)}
       compact={true}
-      game_log={@game_state.game_log}
       recent_result={latest_detective_result(@game_state, @player_id)}
     >
       <div
@@ -431,12 +431,19 @@ defmodule MuseumCaperWeb.GameLive do
               <% end %>
             </section>
 
-            <%= if power_status_visible?(@game_state, @player_id) do %>
+            <%= if full_game?(@game_state) do %>
+              <.full_game_scoreboard game_state={@game_state} />
+            <% end %>
+
+            <% power_status = known_power_status(@game_state, @player_id) %>
+            <%= if power_status do %>
               <div
                 id="power-status"
-                class="rounded-lg border border-red-300/50 bg-red-400/15 p-3 text-sm font-semibold text-red-100"
+                data-power-status={power_status_value(power_status)}
+                class={power_status_class(power_status)}
               >
-                Power off
+                <.icon name={power_status_icon(power_status)} class="size-4 shrink-0" />
+                <span>{power_status_label(power_status)}</span>
               </div>
             <% end %>
 
@@ -451,23 +458,42 @@ defmodule MuseumCaperWeb.GameLive do
                   </p>
                   <%= if host?(@game_state, @player_id) do %>
                     <% start_enabled? = start_game_enabled?(@game_state) %>
-                    <button
-                      id="start-game-button"
-                      type="button"
-                      phx-click="start_game"
-                      disabled={!start_enabled?}
-                      class={[
-                        "inline-flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-black transition",
-                        if(start_enabled?,
-                          do: "bg-emerald-400 text-stone-950 hover:bg-emerald-300",
-                          else:
-                            "cursor-not-allowed border border-stone-600 bg-stone-700 text-stone-400"
-                        )
-                      ]}
-                    >
-                      <.icon name="hero-play-solid" class="size-4" />
-                      {if(start_enabled?, do: "Start game", else: "Waiting for players")}
-                    </button>
+                    <div class="grid gap-2">
+                      <button
+                        id="start-game-button"
+                        type="button"
+                        phx-click="start_game"
+                        phx-value-mode="limited"
+                        disabled={!start_enabled?}
+                        class={[
+                          "inline-flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-black transition",
+                          if(start_enabled?,
+                            do: "bg-emerald-400 text-stone-950 hover:bg-emerald-300",
+                            else:
+                              "cursor-not-allowed border border-stone-600 bg-stone-700 text-stone-400"
+                          )
+                        ]}
+                      >
+                        <.icon name="hero-play-solid" class="size-4" /> Start Limited Game
+                      </button>
+                      <button
+                        id="start-full-game-button"
+                        type="button"
+                        phx-click="start_game"
+                        phx-value-mode="full"
+                        disabled={!start_enabled?}
+                        class={[
+                          "inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-black transition",
+                          if(start_enabled?,
+                            do:
+                              "border-amber-300/70 bg-amber-300/10 text-amber-100 hover:border-amber-200 hover:bg-amber-300/20",
+                            else: "cursor-not-allowed border-stone-600 bg-stone-700 text-stone-400"
+                          )
+                        ]}
+                      >
+                        <.icon name="hero-trophy-solid" class="size-4" /> Start Full Game
+                      </button>
+                    </div>
                   <% else %>
                     <p
                       id="waiting-for-host"
@@ -498,7 +524,7 @@ defmodule MuseumCaperWeb.GameLive do
           >
             <div
               id="museum-board"
-              class="grid aspect-[12/11] w-full max-w-[min(100%,calc((100dvh-10rem)*1.09))] grid-cols-12 overflow-hidden rounded-md border-4 border-stone-700 bg-stone-800 lg:max-w-[min(100%,calc((100dvh-3rem)*1.09))]"
+              class="grid aspect-[12/11] w-full max-w-[min(100%,calc((100dvh-10rem)*1.09))] grid-cols-12 overflow-hidden rounded-md border-2 border-stone-700 bg-stone-800 md:border-4 lg:max-w-[min(100%,calc((100dvh-3rem)*1.09))]"
             >
               <%= for row <- 1..11, col <- 1..12 do %>
                 <% pos = {row, col} %>
@@ -517,7 +543,8 @@ defmodule MuseumCaperWeb.GameLive do
                       "relative aspect-square min-h-0 border text-[0.62rem] font-black transition",
                       cell_surface_class(cell, pos),
                       if(clickable_cell?(@game_state, @player_id, pos),
-                        do: "cursor-pointer ring-2 ring-inset ring-amber-300 hover:brightness-110",
+                        do:
+                          "cursor-pointer ring-1 ring-inset ring-amber-300 hover:brightness-110 md:ring-2",
                         else: "cursor-default"
                       )
                     ]}
@@ -559,7 +586,8 @@ defmodule MuseumCaperWeb.GameLive do
                         "relative grid aspect-square min-h-0 place-items-center border border-stone-800 bg-stone-700",
                         external_door_open_edge_class(pos),
                         if(clickable_cell?(@game_state, @player_id, pos),
-                          do: "cursor-pointer ring-2 ring-inset ring-amber-300 hover:brightness-110",
+                          do:
+                            "cursor-pointer ring-1 ring-inset ring-amber-300 hover:brightness-110 md:ring-2",
                           else: "cursor-default"
                         )
                       ]}
@@ -589,7 +617,7 @@ defmodule MuseumCaperWeb.GameLive do
         </div>
         <% latest_result = latest_detective_result(@game_state, @player_id) %>
         <% latest_result_key = latest_detective_result_key(@game_state) %>
-        <%= if @notification || latest_result || @log_toast do %>
+        <%= if @notification || latest_result || @artwork_reveal_toast do %>
           <div
             id="game-toast-stack"
             class="pointer-events-none fixed inset-x-3 bottom-3 z-40 flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:w-96 md:bottom-6 md:right-6 md:w-[28rem] md:gap-3 lg:w-[32rem]"
@@ -609,22 +637,24 @@ defmodule MuseumCaperWeb.GameLive do
               <div
                 id="game-result-toast"
                 phx-hook="ToastHook"
-                data-toast-key={"result:#{latest_result_key}"}
+                data-toast-key={result_toast_key(@game_id, @game_state, latest_result_key)}
                 role="status"
                 class="translate-y-2 rounded-lg border border-sky-300/40 bg-stone-950/95 p-3 text-sm text-sky-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-4 md:text-base lg:p-5 lg:text-lg"
               >
                 <span class="block font-semibold">{latest_result}</span>
               </div>
             <% end %>
-            <%= if @log_toast do %>
+            <%= if @artwork_reveal_toast do %>
               <div
-                id="game-log-toast"
+                id="artwork-reveal-toast"
                 phx-hook="ToastHook"
-                data-toast-key={"log:#{@game_id}:#{@log_toast_key}"}
+                data-toast-key={
+                  artwork_reveal_toast_key(@game_id, @game_state, @artwork_reveal_toast)
+                }
                 role="status"
-                class="translate-y-2 rounded-lg border border-sky-300/40 bg-stone-950/95 p-3 text-sm text-sky-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-4 md:text-base lg:p-5 lg:text-lg"
+                class="translate-y-2 rounded-lg border border-amber-300/50 bg-stone-950/95 p-3 text-sm font-semibold text-amber-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-4 md:text-base lg:p-5 lg:text-lg"
               >
-                <span class="block font-semibold">{@log_toast}</span>
+                {@artwork_reveal_toast.message}
               </div>
             <% end %>
           </div>
@@ -644,9 +674,9 @@ defmodule MuseumCaperWeb.GameLive do
               data-turn-banner-panel
               data-turn-banner-dismissible="true"
               data-turn-banner-size="massive"
-              tabindex="0"
+              tabindex="-1"
               aria-label="Dismiss your turn banner"
-              class="pointer-events-auto max-w-full translate-y-4 scale-95 cursor-pointer rounded-lg border-4 border-amber-200 bg-stone-950/90 px-6 py-5 text-center text-[clamp(3rem,18vw,10rem)] font-black uppercase leading-none tracking-normal text-amber-100 opacity-0 shadow-2xl shadow-amber-950/50 backdrop-blur-sm transition-[opacity,transform] duration-200 sm:px-10 sm:py-7"
+              class="pointer-events-none max-w-full translate-y-4 scale-95 cursor-pointer rounded-lg border-4 border-amber-200 bg-stone-950/90 px-6 py-5 text-center text-[clamp(3rem,18vw,10rem)] font-black uppercase leading-none tracking-normal text-amber-100 opacity-0 shadow-2xl shadow-amber-950/50 backdrop-blur-sm transition-[opacity,transform] duration-200 sm:px-10 sm:py-7"
             >
               Your Turn
             </div>
@@ -966,14 +996,78 @@ defmodule MuseumCaperWeb.GameLive do
 
   attr :game_state, :map, required: true
 
+  def full_game_scoreboard(assigns) do
+    ~H"""
+    <section
+      id="full-game-scoreboard"
+      class="space-y-2 rounded-lg border border-amber-300/40 bg-amber-300/10 p-2 lg:space-y-3 lg:p-3"
+    >
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-[0.68rem] font-black uppercase leading-none tracking-[0.18em] text-amber-100 lg:text-sm">
+          Full game
+        </h2>
+        <span
+          id="round-status"
+          class="shrink-0 rounded bg-stone-950/70 px-2 py-1 text-[0.68rem] font-bold text-stone-200"
+        >
+          {round_status(@game_state)}
+        </span>
+      </div>
+      <ul class="grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] gap-1 lg:block lg:space-y-2">
+        <%= for player_id <- score_order(@game_state) do %>
+          <li
+            id={"score-#{player_id}"}
+            class={[
+              "flex min-h-9 items-center justify-between gap-2 rounded-md border px-2 py-1 text-xs lg:px-3 lg:py-2 lg:text-sm",
+              if(player_id == @game_state.thief_player_id and @game_state.phase != :game_over,
+                do: "border-amber-300 bg-amber-300/15",
+                else: "border-stone-700 bg-stone-950/50"
+              )
+            ]}
+          >
+            <span class="min-w-0 truncate font-semibold text-stone-100">
+              {player_name(@game_state, player_id)}
+            </span>
+            <span class="shrink-0 font-black text-amber-100">
+              <span data-score-format="compact" class="lg:hidden">
+                {score_count(@game_state, player_id)}
+              </span>
+              <span data-score-format="full" class="hidden lg:inline">
+                {score_for(@game_state, player_id)}
+              </span>
+            </span>
+          </li>
+        <% end %>
+      </ul>
+    </section>
+    """
+  end
+
+  attr :game_state, :map, required: true
+
   def game_over_panel(assigns) do
     ~H"""
     <div id="game-over-panel" class="rounded-lg border border-emerald-300/40 bg-emerald-300/10 p-3">
       <h2 class="text-sm font-black uppercase tracking-[0.18em] text-emerald-100">Game Over</h2>
-      <p class="mt-2 text-sm text-stone-200">
-        Winner: <strong class="capitalize text-stone-50">{@game_state.winner}</strong>
-      </p>
-      <p class="text-sm text-stone-400">Reason: {@game_state.game_over_reason}</p>
+      <%= if full_game?(@game_state) do %>
+        <p id="full-game-winner" class="mt-2 text-sm text-stone-200">
+          Winner: <strong class="text-stone-50">{winner_names(@game_state)}</strong>
+        </p>
+        <ul id="round-report" class="mt-3 space-y-1 text-sm text-stone-300">
+          <%= for result <- @game_state.round_results do %>
+            <li id={"round-report-#{result.round_number}"}>
+              Round {result.round_number}: {player_name(@game_state, result.thief_player_id)} stole {result.stolen_count} {artwork_word(
+                result.stolen_count
+              )}.
+            </li>
+          <% end %>
+        </ul>
+      <% else %>
+        <p class="mt-2 text-sm text-stone-200">
+          Winner: <strong class="capitalize text-stone-50">{@game_state.winner}</strong>
+        </p>
+        <p class="text-sm text-stone-400">Reason: {@game_state.game_over_reason}</p>
+      <% end %>
     </div>
     """
   end
@@ -1115,6 +1209,16 @@ defmodule MuseumCaperWeb.GameLive do
   defp handle_playing_board_click(socket, pos) do
     state = socket.assigns.game_state
 
+    case current_external_door_escape_entry_for_cell(state, socket.assigns.player_id, pos) do
+      %{id: entry_id} ->
+        {:noreply, assign(socket, pending_escape_entry: entry_id, notification: nil)}
+
+      nil ->
+        handle_non_current_escape_click(socket, state, pos)
+    end
+  end
+
+  defp handle_non_current_escape_click(socket, state, pos) do
     if current_space_before_move?(state, socket.assigns.player_id, pos) do
       {:noreply, put_notice(socket, "Choose a different space.")}
     else
@@ -1244,35 +1348,13 @@ defmodule MuseumCaperWeb.GameLive do
       game_state: game_state,
       revealed_mark_keys:
         revealed_mark_keys(previous_state, game_state, socket.assigns.player_id),
-      animated_mark_keys: animated_mark_keys(previous_state, game_state, socket.assigns.player_id)
+      animated_mark_keys:
+        animated_mark_keys(previous_state, game_state, socket.assigns.player_id),
+      artwork_reveal_toast:
+        artwork_reveal_toast(previous_state, game_state, socket.assigns.player_id)
     )
-    |> assign_log_toast(previous_state, game_state)
     |> maybe_show_turn_banner(previous_turn, game_state)
     |> put_notification(notification_message(message, game_state))
-  end
-
-  defp assign_log_toast(socket, previous_state, game_state) do
-    {log_toast, log_toast_key} = next_log_toast(socket, previous_state, game_state)
-    assign(socket, log_toast: log_toast, log_toast_key: log_toast_key)
-  end
-
-  defp next_log_toast(socket, previous_state, game_state) do
-    cond do
-      previous_state == game_state ->
-        {socket.assigns.log_toast, socket.assigns.log_toast_key}
-
-      new_log_entry?(previous_state, game_state) ->
-        {List.last(game_state.game_log), length(game_state.game_log)}
-
-      true ->
-        {nil, nil}
-    end
-  end
-
-  defp new_log_entry?(nil, _game_state), do: false
-
-  defp new_log_entry?(previous_state, game_state) do
-    length(game_state.game_log) > length(previous_state.game_log)
   end
 
   defp maybe_show_turn_banner(socket, previous_turn, game_state) do
@@ -1318,6 +1400,14 @@ defmodule MuseumCaperWeb.GameLive do
       socket.assigns.revealed_mark_keys
     else
       revealed_mark_keys(previous_state, game_state, socket.assigns.player_id)
+    end
+  end
+
+  defp next_artwork_reveal_toast(socket, previous_state, game_state) do
+    if previous_state == game_state do
+      socket.assigns.artwork_reveal_toast
+    else
+      artwork_reveal_toast(previous_state, game_state, socket.assigns.player_id)
     end
   end
 
@@ -1401,12 +1491,40 @@ defmodule MuseumCaperWeb.GameLive do
   defp position_key({row, col}), do: "#{row}-#{col}"
 
   defp painting_reveal_keys(previous_state, game_state, player_id) do
+    previous_state
+    |> painting_reveal_entries(game_state, player_id)
+    |> Enum.map(fn {_pos, label} ->
+      mark_reveal_key({:painting, label, :removed})
+    end)
+  end
+
+  defp artwork_reveal_toast(nil, _game_state, _player_id), do: nil
+
+  defp artwork_reveal_toast(previous_state, game_state, player_id) do
+    if player_role(game_state, player_id) == :detective do
+      previous_state
+      |> painting_reveal_entries(game_state, player_id)
+      |> List.first()
+      |> case do
+        nil ->
+          nil
+
+        {_pos, label} ->
+          %{
+            key: mark_reveal_key({:painting, label, :removed}),
+            message: "Artwork #{label} stolen."
+          }
+      end
+    end
+  end
+
+  defp painting_reveal_entries(previous_state, game_state, player_id) do
     game_state.paintings
     |> Enum.filter(fn {pos, status} ->
       status == :removed and visible_painting_status(previous_state, player_id, pos) != :removed
     end)
     |> Enum.map(fn {pos, _status} ->
-      mark_reveal_key({:painting, painting_label(game_state, pos), :removed})
+      {pos, painting_label(game_state, pos)}
     end)
   end
 
@@ -1497,8 +1615,51 @@ defmodule MuseumCaperWeb.GameLive do
   defp join_closed?(state, player_id),
     do: player_id == nil or not Map.has_key?(state.players, player_id)
 
+  defp start_game_mode(%{"mode" => "full"}), do: :full
+  defp start_game_mode(_params), do: :limited
+
+  defp start_game_message(:full), do: "Full game started. Round 1 setup begins."
+  defp start_game_message(:limited), do: "Game started. Detectives place the museum setup."
+
   defp player_order(%{phase: :lobby, turn_order: order}), do: order
   defp player_order(state), do: Enum.uniq(state.turn_order)
+
+  defp full_game?(%{game_mode: :full}), do: true
+  defp full_game?(_state), do: false
+
+  defp round_status(%{phase: :game_over}), do: "Final report"
+
+  defp round_status(state) do
+    "Round #{state.round_number} of #{max(length(state.thief_rotation), 1)}"
+  end
+
+  defp score_order(%{thief_rotation: []} = state), do: player_order(state)
+  defp score_order(state), do: state.thief_rotation
+
+  defp score_count(state, player_id), do: Map.get(state.artwork_scores, player_id, 0)
+
+  defp score_for(state, player_id) do
+    count = score_count(state, player_id)
+    "#{count} #{artwork_word(count)}"
+  end
+
+  defp winner_names(%{winning_player_ids: []}), do: "No winner"
+
+  defp winner_names(state) do
+    state.winning_player_ids
+    |> Enum.map(&player_name(state, &1))
+    |> Enum.join(", ")
+  end
+
+  defp player_name(state, player_id) do
+    case Map.get(state.players, player_id) do
+      %{name: name} -> name
+      nil -> "Unknown player"
+    end
+  end
+
+  defp artwork_word(1), do: "artwork"
+  defp artwork_word(_count), do: "artworks"
 
   defp current_turn_player?(state, player_id), do: turn_player_id(state) == player_id
 
@@ -1544,9 +1705,42 @@ defmodule MuseumCaperWeb.GameLive do
   defp latest_detective_result_key(%{detective_result: nil}), do: nil
   defp latest_detective_result_key(%{detective_result_id: result_id}), do: result_id
 
-  defp power_status_visible?(state, player_id) do
-    player_role(state, player_id) == :detective and not state.power_active and
-      state.power_revealed
+  defp result_toast_key(game_id, state, result_id) do
+    "result:#{game_id}:round-#{state.round_number}:#{result_id}"
+  end
+
+  defp artwork_reveal_toast_key(game_id, state, %{key: key}) do
+    "artwork-reveal:#{game_id}:round-#{state.round_number}:#{key}"
+  end
+
+  defp known_power_status(state, player_id) do
+    case player_role(state, player_id) do
+      :thief ->
+        if state.power_active, do: :on, else: :off
+
+      :detective ->
+        if not state.power_active and state.power_revealed, do: :off
+
+      _role ->
+        nil
+    end
+  end
+
+  defp power_status_value(:on), do: "on"
+  defp power_status_value(:off), do: "off"
+
+  defp power_status_label(:on), do: "Power on"
+  defp power_status_label(:off), do: "Power off"
+
+  defp power_status_icon(:on), do: "hero-bolt-solid"
+  defp power_status_icon(:off), do: "hero-bolt-slash-solid"
+
+  defp power_status_class(:on) do
+    "flex items-center gap-2 rounded-lg border border-emerald-300/50 bg-emerald-400/15 p-3 text-sm font-semibold text-emerald-100"
+  end
+
+  defp power_status_class(:off) do
+    "flex items-center gap-2 rounded-lg border border-red-300/50 bg-red-400/15 p-3 text-sm font-semibold text-red-100"
   end
 
   defp detective_result_message({:look_pawn, :chase_triggered}),
@@ -1743,10 +1937,11 @@ defmodule MuseumCaperWeb.GameLive do
         player_role(state, player_id) == :thief and Board.entries_for_cell(pos) != []
 
       state.phase == :playing and state.current_turn == player_id ->
-        not current_space_before_move?(state, player_id, pos) and
-          (pos in valid_destinations(state, player_id) or
-             escape_entry_for_cell(state, player_id, pos) != nil or
-             movement_escape_entry_for_cell(state, player_id, pos) != nil)
+        current_external_door_escape_entry_for_cell(state, player_id, pos) != nil or
+          (not current_space_before_move?(state, player_id, pos) and
+             (pos in valid_destinations(state, player_id) or
+                escape_entry_for_cell(state, player_id, pos) != nil or
+                movement_escape_entry_for_cell(state, player_id, pos) != nil))
 
       true ->
         false
@@ -1761,14 +1956,29 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
+  defp current_external_door_escape_entry_for_cell(state, player_id, pos) do
+    if player_role(state, player_id) == :thief and state.current_turn == player_id and
+         state.thief_position == pos do
+      Enum.find(Board.exits_for_cell(pos), fn entry ->
+        Board.exit_adjacent_cell(entry) == state.thief_position
+      end)
+    end
+  end
+
   defp movement_escape_entry_for_cell(state, player_id, pos) do
     if player_role(state, player_id) == :thief and state.current_turn == player_id and
          :move in state.turn_actions_remaining do
-      Enum.find(Board.entries_for_cell(pos), fn
+      pos
+      |> movement_escape_entries_for_cell()
+      |> Enum.find(fn
         %{type: :door} = entry -> movement_escape_reachable?(state, entry)
         _entry -> false
       end)
     end
+  end
+
+  defp movement_escape_entries_for_cell(pos) do
+    Board.entries_for_cell(pos) ++ Board.exits_for_cell(pos)
   end
 
   defp movement_escape_reachable?(state, %{door_cell: door_cell, adj_cell: adj_cell})
@@ -2217,13 +2427,13 @@ defmodule MuseumCaperWeb.GameLive do
           "#{prop}:0;"
 
         edge in window_edges ->
-          "#{prop}:4px solid rgb(34,211,238);"
+          "#{prop}:var(--museum-window-border);"
 
         Board.passable?(pos, adj) ->
-          "#{prop}:1px solid rgba(28,25,23,0.28);"
+          "#{prop}:var(--museum-passable-border);"
 
         true ->
-          "#{prop}:3px solid rgb(28,25,23);"
+          "#{prop}:var(--museum-wall-border);"
       end
     end)
   end

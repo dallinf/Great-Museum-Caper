@@ -154,6 +154,33 @@ defmodule MuseumCaper.Game.ServerTest do
     assert state.thief_player_id == "cora"
   end
 
+  test "start_game can start a full game with thief rotation and artwork scores" do
+    game_id = "full-game-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert :ok = Server.add_player(pid, "bob", "Bob", :green)
+    assert :ok = Server.add_player(pid, "cora", "Cora", :yellow)
+
+    assert {:ok, state} =
+             Server.start_game(pid, "alice",
+               shuffle: fn _order -> ["bob", "cora", "alice"] end,
+               game_mode: :full
+             )
+
+    assert state.game_mode == :full
+    assert state.thief_rotation == ["bob", "cora", "alice"]
+    assert state.round_number == 1
+    assert state.artwork_scores == %{"bob" => 0, "cora" => 0, "alice" => 0}
+    assert state.thief_player_id == "bob"
+    assert state.players["bob"].role == :thief
+    assert state.players["bob"].color == :grey
+    assert state.players["cora"].role == :detective
+    assert state.players["cora"].color == :yellow
+    assert state.players["alice"].role == :detective
+    assert state.players["alice"].color == :purple
+  end
+
   test "existing players can reconnect after the game starts" do
     game_id = "rejoin-#{System.unique_integer()}"
     {:ok, pid} = Server.start_link(game_id: game_id, players: %{})

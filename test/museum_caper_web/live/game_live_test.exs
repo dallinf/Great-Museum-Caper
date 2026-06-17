@@ -192,13 +192,17 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
 
-    assert has_element?(alice_view, "#start-game-button[disabled]", "Waiting for players")
+    assert has_element?(alice_view, "#start-game-button[disabled]", "Start Limited Game")
+    assert has_element?(alice_view, "#start-full-game-button[disabled]", "Start Full Game")
     refute has_element?(alice_view, "#start-game-button:not([disabled])")
+    refute has_element?(alice_view, "#start-full-game-button:not([disabled])")
 
     {:ok, _bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
 
-    assert has_element?(alice_view, "#start-game-button:not([disabled])", "Start game")
+    assert has_element?(alice_view, "#start-game-button:not([disabled])", "Start Limited Game")
+    assert has_element?(alice_view, "#start-full-game-button:not([disabled])", "Start Full Game")
     refute has_element?(alice_view, "#start-game-button[disabled]")
+    refute has_element?(alice_view, "#start-full-game-button[disabled]")
   end
 
   test "two joined players can start into setup", %{conn: conn, game_id: game_id} do
@@ -211,6 +215,36 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(alice_view, "#setup-panel")
     assert has_element?(alice_view, "#museum-board")
+  end
+
+  test "host can choose the full game when starting", %{conn: conn, game_id: game_id} do
+    {:ok, pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: %{})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+    {:ok, _bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
+
+    assert has_element?(alice_view, "#start-game-button:not([disabled])", "Start Limited Game")
+    assert has_element?(alice_view, "#start-full-game-button:not([disabled])", "Start Full Game")
+
+    render_click(element(alice_view, "#start-full-game-button"))
+
+    state = GameServer.get_state(pid)
+    assert state.game_mode == :full
+    assert has_element?(alice_view, "#full-game-scoreboard")
+    assert has_element?(alice_view, "#round-status", "Round 1 of 2")
+    assert has_element?(alice_view, "#score-player-alice [data-score-format='compact']", "0")
+
+    assert has_element?(
+             alice_view,
+             "#score-player-alice [data-score-format='full']",
+             "0 artworks"
+           )
+
+    refute has_element?(
+             alice_view,
+             "#score-player-alice [data-score-format='compact']",
+             "artworks"
+           )
   end
 
   test "setup roster identifies the thief without a mobile badge", %{
@@ -285,9 +319,9 @@ defmodule MuseumCaperWeb.GameLiveTest do
     {:ok, view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
 
     refute has_element?(view, "#app-menu #back-to-lobby-link")
-    assert has_element?(view, "#wake-lock-control[phx-hook='WakeLockHook']")
-    assert has_element?(view, "#wake-lock-toggle[type='button']", "Keep screen awake")
-    assert has_element?(view, "#wake-lock-status[aria-live='polite']", "Off")
+    refute has_element?(view, "#wake-lock-control")
+    refute has_element?(view, "#wake-lock-toggle", "Keep screen awake")
+    refute has_element?(view, "#wake-lock-status")
     refute has_element?(view, "#app-menu [data-phx-theme]")
   end
 
@@ -394,12 +428,12 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             ~s|#cell-10-5[style*="border-top:1px solid rgba(28,25,23,0.28);"][style*="border-right:3px solid rgb(28,25,23);"]|
+             ~s|#cell-10-5[style*="border-top:var(--museum-passable-border);"][style*="border-right:var(--museum-wall-border);"]|
            )
 
     assert has_element?(
              alice_view,
-             ~s|#cell-4-10[style*="border-left:1px solid rgba(28,25,23,0.28);"][style*="border-bottom:3px solid rgb(28,25,23);"]|
+             ~s|#cell-4-10[style*="border-left:var(--museum-passable-border);"][style*="border-bottom:var(--museum-wall-border);"]|
            )
 
     assert has_element?(alice_view, "#cell-3-4.bg-stone-300")
@@ -901,7 +935,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#turn-banner.pointer-events-none [data-turn-banner-panel][data-turn-banner-dismissible='true'].pointer-events-auto.cursor-pointer[tabindex='0'][aria-label='Dismiss your turn banner']",
+             "#turn-banner.pointer-events-none [data-turn-banner-panel][data-turn-banner-dismissible='true'].pointer-events-none.cursor-pointer[tabindex='-1'][aria-label='Dismiss your turn banner']",
              "Your Turn"
            )
 
@@ -1111,7 +1145,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(next_alice_view, "#look-camera-2", "Camera 2")
   end
 
-  test "detectives see power is off only after using a powered tool", %{
+  test "power status reflects what each player knows", %{
     conn: conn,
     game_id: game_id
   } do
@@ -1123,12 +1157,14 @@ defmodule MuseumCaperWeb.GameLiveTest do
     {:ok, thief_view, _html} = live(conn, "/game/#{game_id}?player_name=Theo")
 
     refute has_element?(alice_view, "#power-status")
+    assert has_element?(thief_view, "#power-status[data-power-status='on']", "Power on")
 
     render_click(element(thief_view, "#cell-11-9"))
 
     assert GameServer.get_state(pid).power_active == false
     refute GameServer.get_state(pid).power_revealed
     refute has_element?(alice_view, "#power-status")
+    assert has_element?(thief_view, "#power-status[data-power-status='off']", "Power off")
 
     set_detective_turn!(pid, {4, :camera_scan}, 0, power_active: false)
     {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
@@ -1136,7 +1172,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     render_click(element(alice_view, "#camera-scan-button"))
 
     assert GameServer.get_state(pid).power_revealed
-    assert has_element?(alice_view, "#power-status", "Power off")
+    assert has_element?(alice_view, "#power-status[data-power-status='off']", "Power off")
   end
 
   test "all players see a motion detector result", %{
@@ -1193,6 +1229,34 @@ defmodule MuseumCaperWeb.GameLiveTest do
            )
   end
 
+  test "camera scan result toast keys do not collide across games", %{
+    conn: conn,
+    game_id: first_game_id
+  } do
+    first_pid = start_fixed_setup_game!(first_game_id)
+    advance_to_thief_entry(first_pid)
+    assert {:ok, _state} = GameServer.enter_museum(first_pid, :exit_w1)
+    set_detective_turn!(first_pid, {4, :camera_scan})
+    set_thief_position!(first_pid, {4, 4})
+
+    {:ok, first_view, _html} = live(conn, "/game/#{first_game_id}?player_name=Alice")
+
+    render_click(element(first_view, "#camera-scan-button"))
+
+    second_game_id = "#{first_game_id}-second"
+    second_pid = start_fixed_setup_game!(second_game_id)
+    advance_to_thief_entry(second_pid)
+    assert {:ok, _state} = GameServer.enter_museum(second_pid, :exit_w1)
+    set_detective_turn!(second_pid, {4, :camera_scan})
+    set_thief_position!(second_pid, {4, 4})
+
+    {:ok, second_view, _html} = live(conn, "/game/#{second_game_id}?player_name=Alice")
+
+    render_click(element(second_view, "#camera-scan-button"))
+
+    refute result_toast_key(second_view) == result_toast_key(first_view)
+  end
+
   test "all players see detective pawn look results", %{
     conn: conn,
     game_id: game_id
@@ -1213,7 +1277,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     end
   end
 
-  test "detective cannot move after looking before moving", %{
+  test "detective can move after looking from pawn before moving", %{
     conn: conn,
     game_id: game_id
   } do
@@ -1230,17 +1294,39 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     state = GameServer.get_state(pid)
     assert state.current_turn == "player-alice"
-    assert state.turn_actions_remaining == []
+    assert state.turn_actions_remaining == [:move]
     assert state.movement_spent == 0
-    refute has_element?(alice_view, "#cell-4-4.cursor-pointer")
-    assert has_element?(alice_view, "#end-turn-button:not([disabled])", "End turn")
+    assert has_element?(alice_view, "#cell-4-4.cursor-pointer")
+    assert has_element?(alice_view, "#end-turn-button[disabled]", "Move first")
 
     render_click(element(alice_view, "#cell-4-4"))
 
     state = GameServer.get_state(pid)
     assert state.current_turn == "player-alice"
-    assert state.detective_positions["player-alice"] == {2, 4}
-    assert has_element?(alice_view, "#game-notification", "That move is not legal.")
+    assert state.detective_positions["player-alice"] == {4, 4}
+    assert state.movement_spent > 0
+    assert has_element?(alice_view, "#end-turn-button:not([disabled])", "End turn")
+  end
+
+  test "detective cannot keep moving after looking from pawn after moving", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_detective_turn!(pid, {4, :eye})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    render_click(element(alice_view, "#cell-4-4"))
+    render_click(element(alice_view, "#look-pawn-button"))
+
+    state = GameServer.get_state(pid)
+    assert state.current_turn == "player-alice"
+    assert state.turn_actions_remaining == []
+    refute has_element?(alice_view, "#cell-2-4.cursor-pointer")
+    assert has_element?(alice_view, "#end-turn-button:not([disabled])", "End turn")
   end
 
   test "detective can move after looking through a camera before moving", %{
@@ -1683,7 +1769,10 @@ defmodule MuseumCaperWeb.GameLiveTest do
     state = GameServer.get_state(pid)
     assert state.phase == :playing
     refute state.chase_mode
+    assert state.turn_actions_remaining == []
     assert has_element?(thief_view, "#game-notification", "D2 lock is locked.")
+    refute has_element?(thief_view, "#cell-6-3.cursor-pointer")
+    assert has_element?(thief_view, "#end-turn-button:not([disabled])", "End turn")
     refute has_element?(thief_view, "#game-notification", "Chase mode is on.")
 
     assert_result_surface(alice_view, "The thief checked the D2 lock.")
@@ -1734,6 +1823,50 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     state = GameServer.get_state(pid)
     assert state.thief_position == {10, 6}
+    assert state.phase == :playing
+    assert has_element?(thief_view, "#escape-choice-panel")
+    assert has_element?(thief_view, "#escape-choice-panel", "Check this door lock?")
+  end
+
+  test "clicking the current inside square at an external door asks about the lock", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_thief_position!(pid, {10, 6})
+
+    {:ok, thief_view, _html} = live(conn, "/game/#{game_id}?player_name=Theo")
+
+    assert has_element?(thief_view, "#cell-10-6.cursor-pointer")
+    render_click(element(thief_view, "#cell-10-6"))
+
+    state = GameServer.get_state(pid)
+    assert state.thief_position == {10, 6}
+    assert state.phase == :playing
+    assert has_element?(thief_view, "#escape-choice-panel")
+    assert has_element?(thief_view, "#escape-choice-panel", "Check this door lock?")
+  end
+
+  test "clicking a reachable inside square at an external door moves there and asks about the lock",
+       %{
+         conn: conn,
+         game_id: game_id
+       } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_thief_position!(pid, {9, 6})
+
+    {:ok, thief_view, _html} = live(conn, "/game/#{game_id}?player_name=Theo")
+
+    assert has_element?(thief_view, "#cell-10-6.cursor-pointer")
+    render_click(element(thief_view, "#cell-10-6"))
+
+    state = GameServer.get_state(pid)
+    assert state.thief_position == {10, 6}
+    assert state.movement_spent > 0
     assert state.phase == :playing
     assert has_element?(thief_view, "#escape-choice-panel")
     assert has_element?(thief_view, "#escape-choice-panel", "Check this door lock?")
@@ -1981,11 +2114,11 @@ defmodule MuseumCaperWeb.GameLiveTest do
              "A4"
            )
 
+    assert has_element?(alice_view, "#artwork-reveal-toast", "Artwork A4 stolen.")
+    refute has_element?(thief_view, "#artwork-reveal-toast", "Artwork A4 stolen.")
     refute has_element?(alice_view, "#game-log")
-    assert has_element?(alice_view, "#game-log-toast", "Artwork A4 stolen.")
-    refute has_element?(alice_view, "#game-log-toast", "Log")
-    assert has_element?(alice_view, "#app-menu #menu-game-log", "Log")
-    assert has_element?(alice_view, "#app-menu #menu-game-log-entry-0", "Artwork A4 stolen.")
+    refute has_element?(alice_view, "#game-log-toast", "Artwork A4 stolen.")
+    refute has_element?(alice_view, "#app-menu #menu-game-log")
 
     {row, col} =
       pid
@@ -1996,8 +2129,9 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     render_click(element(thief_view, "#cell-#{row}-#{col}"))
 
+    refute has_element?(alice_view, "#artwork-reveal-toast", "Artwork A4 stolen.")
     refute has_element?(alice_view, "#game-log-toast", "Artwork A4 stolen.")
-    assert has_element?(alice_view, "#app-menu #menu-game-log-entry-0", "Artwork A4 stolen.")
+    refute has_element?(alice_view, "#app-menu #menu-game-log")
   end
 
   test "detective cannot click hidden thief on targeted painting", %{
@@ -2058,8 +2192,10 @@ defmodule MuseumCaperWeb.GameLiveTest do
              "#cell-3-8 [data-board-mark='thief'][data-mark-status='gray'].size-3\\.5.md\\:size-5.lg\\:size-6"
            )
 
+    assert has_element?(alice_view, "#artwork-reveal-toast", "Artwork A7 stolen.")
     refute has_element?(alice_view, "#game-log")
-    assert has_element?(alice_view, "#game-log-toast", "Artwork A7 stolen.")
+    refute has_element?(alice_view, "#game-log-toast", "Artwork A7 stolen.")
+    refute has_element?(alice_view, "#app-menu #menu-game-log")
   end
 
   test "detective catches known thief after ending turn on their space", %{

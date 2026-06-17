@@ -124,6 +124,7 @@ const TurnBannerHook = {
     clearTimeout(this.timer);
     this.hidden = false;
     panel.style.pointerEvents = "auto";
+    panel.tabIndex = 0;
 
     panel.style.transition = "none";
     panel.style.opacity = "0";
@@ -155,6 +156,7 @@ const TurnBannerHook = {
 
     const panel = this.panel();
     panel.style.pointerEvents = "none";
+    panel.tabIndex = -1;
     panel.style.transition = this.prefersReducedMotion()
       ? "none"
       : "opacity 0.28s ease-in, transform 0.28s ease-in";

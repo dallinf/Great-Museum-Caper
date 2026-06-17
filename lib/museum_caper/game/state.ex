@@ -7,6 +7,12 @@ defmodule MuseumCaper.Game.State do
             phase: :lobby,
             setup_step: :locks,
             host_player_id: nil,
+            game_mode: :limited,
+            thief_rotation: [],
+            round_number: 1,
+            artwork_scores: %{},
+            round_results: [],
+            winning_player_ids: [],
             thief_player_id: nil,
             thief_position: nil,
             motion_snips_remaining: 2,
@@ -31,7 +37,8 @@ defmodule MuseumCaper.Game.State do
             winner: nil,
             game_over_reason: nil
 
-  def new_game(players, player_order \\ nil, host_player_id \\ nil) when is_map(players) do
+  def new_game(players, player_order \\ nil, host_player_id \\ nil, opts \\ [])
+      when is_map(players) do
     player_order = player_order || Map.keys(players)
     host_player_id = host_player_id || List.first(player_order)
 
@@ -47,11 +54,19 @@ defmodule MuseumCaper.Game.State do
     cameras = Map.new(1..4, fn n -> {n, nil} end)
     detective_positions = Map.new(detective_ids, fn id -> {id, nil} end)
     turn_order = alternating_turn_order(detective_ids, thief_id)
+    thief_rotation = Keyword.get(opts, :thief_rotation, default_thief_rotation(thief_id))
 
     %__MODULE__{
       players: players,
       turn_order: turn_order,
       host_player_id: host_player_id,
+      game_mode: Keyword.get(opts, :game_mode, :limited),
+      thief_rotation: thief_rotation,
+      round_number: Keyword.get(opts, :round_number, 1),
+      artwork_scores: Keyword.get(opts, :artwork_scores, default_scores(thief_rotation)),
+      round_results: Keyword.get(opts, :round_results, []),
+      winning_player_ids: Keyword.get(opts, :winning_player_ids, []),
+      game_log: Keyword.get(opts, :game_log, []),
       thief_player_id: thief_id,
       locks: locks,
       cameras: cameras,
@@ -65,4 +80,9 @@ defmodule MuseumCaper.Game.State do
   defp alternating_turn_order(detective_ids, thief_id) do
     Enum.flat_map(detective_ids, fn detective_id -> [detective_id, thief_id] end)
   end
+
+  defp default_thief_rotation(nil), do: []
+  defp default_thief_rotation(thief_id), do: [thief_id]
+
+  defp default_scores(player_ids), do: Map.new(player_ids, fn player_id -> {player_id, 0} end)
 end

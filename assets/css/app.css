@@ -66,6 +66,19 @@
 @import "./board.css";
 @import "./mobile.css";
 
+#museum-board {
+  --museum-passable-border: 1px solid rgba(28, 25, 23, 0.28);
+  --museum-wall-border: 2px solid rgb(28, 25, 23);
+  --museum-window-border: 3px solid rgb(34, 211, 238);
+}
+
+@media (min-width: 768px) {
+  #museum-board {
+    --museum-wall-border: 3px solid rgb(28, 25, 23);
+    --museum-window-border: 4px solid rgb(34, 211, 238);
+  }
+}
+
 .board-reveal-stack-active {
   z-index: 60;
 }

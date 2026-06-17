@@ -43,19 +43,40 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       refute :look in new_state.turn_actions_remaining
     end
 
-    test "spends remaining detective movement after looking from pawn" do
+    test "keeps detective movement available after looking from pawn before moving" do
       state = %{
         base_state()
-        | current_turn: "d2",
-          turn_order: ["d2", "t", "d1", "t"],
-          dice: {4, :eye}
+        | current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          dice: {4, :eye},
+          thief_position: {1, 6}
       }
 
-      {:ok, :no_sighting, new_state} = Rules.use_eye_action(state, "d2")
+      {:ok, :no_sighting, new_state} = Rules.use_eye_action(state, "d1")
+
+      refute :look in new_state.turn_actions_remaining
+      assert :move in new_state.turn_actions_remaining
+      assert new_state.movement_spent == 0
+      assert {:error, :movement_required} = Rules.end_turn(new_state)
+      assert {:ok, moved_state} = Rules.move_detective(new_state, "d1", {3, 8})
+      assert moved_state.detective_positions["d1"] == {3, 8}
+    end
+
+    test "spends remaining detective movement after looking from pawn after moving" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          dice: {4, :eye},
+          thief_position: {1, 6}
+      }
+
+      {:ok, moved_state} = Rules.move_detective(state, "d1", {3, 8})
+      {:ok, :no_sighting, new_state} = Rules.use_eye_action(moved_state, "d1")
 
       refute :look in new_state.turn_actions_remaining
       refute :move in new_state.turn_actions_remaining
-      assert {:error, :invalid_move} = Rules.move_detective(new_state, "d2", {1, 2})
+      assert {:error, :invalid_move} = Rules.move_detective(new_state, "d1", {4, 9})
       assert {:ok, advanced_state} = Rules.end_turn(new_state)
       assert advanced_state.current_turn == "t"
     end
@@ -126,6 +147,7 @@ defmodule MuseumCaper.Game.RulesActionsTest do
 
       refute :look in new_state.turn_actions_remaining
       assert :move in new_state.turn_actions_remaining
+      assert new_state.movement_spent == 0
       assert {:error, :movement_required} = Rules.end_turn(new_state)
       assert {:ok, moved_state} = Rules.move_detective(new_state, "d1", {3, 8})
       assert moved_state.detective_positions["d1"] == {3, 8}

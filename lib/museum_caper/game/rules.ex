@@ -1,5 +1,5 @@
 defmodule MuseumCaper.Game.Rules do
-  alias MuseumCaper.Game.{Board, State}
+  alias MuseumCaper.Game.{Board, PawnColors, State}
 
   # --- Setup ---
 
@@ -392,11 +392,13 @@ defmodule MuseumCaper.Game.Rules do
       if state.thief_position == adj_cell do
         case Map.get(state.locks, exit_id, :open) do
           :open ->
-            {:ok, :escaped,
-             %{state | phase: :game_over, winner: :thief, game_over_reason: :escaped}}
+            {:ok, :escaped, state |> resolve_pending_steal() |> finish_round(:thief, :escaped)}
 
           :locked ->
-            {:ok, :locked, put_detective_result(state, {:escape_locked, exit_id})}
+            {:ok, :locked,
+             state
+             |> spend_movement()
+             |> put_detective_result({:escape_locked, exit_id})}
         end
       else
         {:error, :not_adjacent}
@@ -432,7 +434,7 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp catch_thief(state) do
-    %{state | phase: :game_over, winner: :detectives, game_over_reason: :caught}
+    finish_round(state, :detectives, :caught)
   end
 
   def advance_turn(state) do
@@ -475,6 +477,123 @@ defmodule MuseumCaper.Game.Rules do
   defp roll_number_die, do: Enum.random(1..6)
 
   defp thief_turn?(state, player_id), do: player_id == state.thief_player_id
+
+  defp finish_round(%{game_mode: :full} = state, outcome, reason) do
+    scored_count = scored_stolen_count(outcome, state.stolen_count)
+
+    artwork_scores =
+      Map.update(state.artwork_scores, state.thief_player_id, scored_count, fn score ->
+        score + scored_count
+      end)
+
+    round_result = %{
+      round_number: state.round_number,
+      thief_player_id: state.thief_player_id,
+      stolen_count: scored_count,
+      outcome: outcome,
+      reason: reason
+    }
+
+    round_results = state.round_results ++ [round_result]
+
+    if state.round_number >= length(state.thief_rotation) do
+      winners = winning_player_ids(artwork_scores, state.thief_rotation)
+
+      %{
+        state
+        | phase: :game_over,
+          winner: full_game_winner(winners),
+          game_over_reason: :all_thieves_played,
+          artwork_scores: artwork_scores,
+          round_results: round_results,
+          winning_player_ids: winners,
+          pending_steal: nil
+      }
+    else
+      start_next_full_round(state, artwork_scores, round_results, round_result)
+    end
+  end
+
+  defp finish_round(state, outcome, reason) do
+    winner = if outcome == :thief, do: :thief, else: :detectives
+    %{state | phase: :game_over, winner: winner, game_over_reason: reason}
+  end
+
+  defp scored_stolen_count(:thief, stolen_count), do: stolen_count
+  defp scored_stolen_count(:detectives, _stolen_count), do: 0
+
+  defp start_next_full_round(state, artwork_scores, round_results, round_result) do
+    next_round_number = state.round_number + 1
+    next_thief_id = Enum.at(state.thief_rotation, state.round_number)
+    role_order = [next_thief_id | Enum.reject(state.thief_rotation, &(&1 == next_thief_id))]
+    players = assign_round_roles(state.players, role_order, next_thief_id)
+
+    State.new_game(players, role_order, state.host_player_id,
+      game_mode: :full,
+      thief_rotation: state.thief_rotation,
+      round_number: next_round_number,
+      artwork_scores: artwork_scores,
+      round_results: round_results,
+      game_log: next_round_log(state, round_result, next_round_number, next_thief_id)
+    )
+  end
+
+  defp assign_round_roles(players, role_order, thief_id) do
+    role_order
+    |> Enum.with_index()
+    |> Map.new(fn {player_id, index} ->
+      player = players[player_id]
+      role = if player_id == thief_id, do: :thief, else: :detective
+      color = round_player_color(role, index)
+      {player_id, %{player | role: role, color: color}}
+    end)
+  end
+
+  defp round_player_color(:thief, _index), do: :grey
+
+  defp round_player_color(:detective, index) do
+    PawnColors.all()
+    |> Enum.at(index - 1, PawnColors.default())
+  end
+
+  defp next_round_log(state, round_result, next_round_number, next_thief_id) do
+    state.game_log ++
+      [
+        round_result_message(state, round_result),
+        "#{player_name(state, next_thief_id)} is the thief for round #{next_round_number}."
+      ]
+  end
+
+  defp round_result_message(
+         state,
+         %{round_number: round_number, stolen_count: stolen_count} = result
+       ) do
+    outcome =
+      case result.outcome do
+        :thief -> "escaped"
+        :detectives -> "was caught"
+      end
+
+    "Round #{round_number}: #{player_name(state, result.thief_player_id)} stole #{stolen_count} #{artwork_word(stolen_count)} and #{outcome}."
+  end
+
+  defp winning_player_ids(scores, rotation) do
+    max_score = scores |> Map.values() |> Enum.max(fn -> 0 end)
+    Enum.filter(rotation, fn player_id -> Map.get(scores, player_id, 0) == max_score end)
+  end
+
+  defp full_game_winner([_player_id]), do: :player
+  defp full_game_winner(_player_ids), do: :tie
+
+  defp artwork_word(1), do: "artwork"
+  defp artwork_word(_count), do: "artworks"
+
+  defp player_name(state, player_id) do
+    case Map.get(state.players, player_id) do
+      %{name: name} -> name
+      nil -> "Unknown player"
+    end
+  end
 
   defp lock_entry(state, entry_id) do
     locked_count = Enum.count(state.locks, fn {_id, status} -> status == :locked end)
@@ -540,7 +659,7 @@ defmodule MuseumCaper.Game.Rules do
 
   def use_eye_action(state, detective_id) do
     pos = state.detective_positions[detective_id]
-    state = spend_look_and_movement(state)
+    state = spend_eye_look(state)
 
     if Board.can_see?(pos, state.thief_position) do
       {:ok, :chase_triggered, spot_thief(state, {:look_pawn, :chase_triggered})}
@@ -550,7 +669,7 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   def use_eye_on_camera(state, _detective_id, camera_id) do
-    state = spend_camera_eye_look(state)
+    state = spend_eye_look(state)
 
     if not state.power_active do
       {:ok, :power_off,
@@ -585,7 +704,7 @@ defmodule MuseumCaper.Game.Rules do
     end
   end
 
-  defp spend_camera_eye_look(state) do
+  defp spend_eye_look(state) do
     if movement_made?(state) do
       spend_look_and_movement(state)
     else
@@ -605,6 +724,10 @@ defmodule MuseumCaper.Game.Rules do
 
   defp spend_look(state) do
     %{state | turn_actions_remaining: List.delete(state.turn_actions_remaining, :look)}
+  end
+
+  defp spend_movement(state) do
+    %{state | turn_actions_remaining: List.delete(state.turn_actions_remaining, :move)}
   end
 
   def use_camera_scan(state) do
