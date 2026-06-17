@@ -291,7 +291,9 @@ defmodule MuseumCaper.Game.Server do
 
       true ->
         shuffle = Keyword.get(opts, :shuffle, &Enum.shuffle/1)
+        game_mode = opts |> Keyword.get(:game_mode, :limited) |> normalize_game_mode()
         shuffled_order = shuffle.(turn_order)
+        thief_rotation = if game_mode == :full, do: shuffled_order, else: [hd(shuffled_order)]
 
         players =
           shuffled_order
@@ -304,11 +306,19 @@ defmodule MuseumCaper.Game.Server do
           end)
 
         {:ok,
-         State.new_game(players, shuffled_order, game_state.host_player_id || hd(turn_order))}
+         State.new_game(players, shuffled_order, game_state.host_player_id || hd(turn_order),
+           game_mode: game_mode,
+           thief_rotation: thief_rotation,
+           artwork_scores: Map.new(thief_rotation, fn player_id -> {player_id, 0} end)
+         )}
     end
   end
 
   defp start_lobby_game(_game_state, _player_id, _opts), do: {:error, :invalid_phase}
+
+  defp normalize_game_mode(:full), do: :full
+  defp normalize_game_mode("full"), do: :full
+  defp normalize_game_mode(_mode), do: :limited
 
   defp resolve_player_color(game_state, player_id, requested_color) do
     with {:ok, color} <- PawnColors.normalize(requested_color) do

@@ -39,10 +39,6 @@ defmodule MuseumCaperWeb.Layouts do
     default: false,
     doc: "render compact overlay navigation instead of the full application banner"
 
-  attr :game_log, :list,
-    default: [],
-    doc: "optional game log entries shown in the compact menu"
-
   attr :recent_result, :string,
     default: nil,
     doc: "optional latest result shown in the compact menu"
@@ -72,27 +68,12 @@ defmodule MuseumCaperWeb.Layouts do
               <span>Back to lobby</span>
             </.link>
           <% end %>
-          <div class="mt-2 border-t border-stone-800 pt-2">
-            <.wake_lock_control />
-          </div>
           <%= if @recent_result do %>
             <section id="menu-detective-result" class="mt-2 border-t border-stone-800 px-3 py-3">
               <h2 class="text-xs font-black uppercase tracking-[0.18em] text-stone-400">
                 Recent result
               </h2>
               <p class="mt-2 text-sm leading-snug text-stone-200">{@recent_result}</p>
-            </section>
-          <% end %>
-          <%= if @game_log != [] do %>
-            <section id="menu-game-log" class="mt-2 border-t border-stone-800 px-3 py-3">
-              <h2 class="text-xs font-black uppercase tracking-[0.18em] text-stone-400">Log</h2>
-              <ol class="mt-2 max-h-44 space-y-2 overflow-y-auto pr-1 text-sm text-stone-200">
-                <%= for {entry, index} <- Enum.with_index(@game_log) do %>
-                  <li id={"menu-game-log-entry-#{index}"} class="leading-snug">
-                    {entry}
-                  </li>
-                <% end %>
-              </ol>
             </section>
           <% end %>
         </div>
@@ -187,30 +168,6 @@ defmodule MuseumCaperWeb.Layouts do
         {gettext("Attempting to reconnect")}
         <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
       </.flash>
-    </div>
-    """
-  end
-
-  def wake_lock_control(assigns) do
-    ~H"""
-    <div id="wake-lock-control" phx-hook="WakeLockHook" phx-update="ignore" class="space-y-1">
-      <button
-        id="wake-lock-toggle"
-        type="button"
-        aria-pressed="false"
-        class="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm font-bold text-stone-200 transition hover:bg-stone-800 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <span class="flex min-w-0 items-center gap-2">
-          <.icon name="hero-sun-micro" class="size-4 shrink-0" />
-          <span class="truncate">Keep screen awake</span>
-        </span>
-        <span
-          data-wake-indicator
-          class="size-2 shrink-0 rounded-full bg-stone-600 shadow-sm shadow-black/40"
-        >
-        </span>
-      </button>
-      <p id="wake-lock-status" aria-live="polite" class="px-3 text-xs text-stone-500">Off</p>
     </div>
     """
   end

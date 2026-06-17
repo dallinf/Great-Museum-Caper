@@ -28,14 +28,12 @@ import BoardRevealHook from "./hooks/board_reveal_hook"
 import BoardHook from "./hooks/board_hook"
 import ToastHook from "./hooks/toast_hook"
 import TurnBannerHook from "./hooks/turn_banner_hook"
-import WakeLockHook from "./hooks/wake_lock_hook"
 
 let Hooks = {}
 Hooks.BoardRevealHook = BoardRevealHook
 Hooks.BoardHook = BoardHook
 Hooks.ToastHook = ToastHook
 Hooks.TurnBannerHook = TurnBannerHook
-Hooks.WakeLockHook = WakeLockHook
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
