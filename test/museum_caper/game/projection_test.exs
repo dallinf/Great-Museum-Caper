@@ -8,6 +8,11 @@ defmodule MuseumCaper.Game.ProjectionTest do
     "d2" => %{name: "Det2", role: :detective, color: :blue}
   }
 
+  @two_player_full_players %{
+    "alice" => %{name: "Alice", role: :thief, color: :grey},
+    "bob" => %{name: "Bob", role: :detective, color: :green}
+  }
+
   def playing_state do
     %{
       State.new_game(@players)
@@ -115,6 +120,29 @@ defmodule MuseumCaper.Game.ProjectionTest do
 
       view = Projection.project_state(state, "d1")
       assert is_list(view.valid_destinations)
+    end
+
+    test "detective controller sees valid destinations for the active controlled pawn" do
+      state =
+        State.new_game(@two_player_full_players, ["alice", "bob"], nil,
+          game_mode: :full,
+          thief_rotation: ["alice", "bob"]
+        )
+        |> Map.merge(%{
+          phase: :playing,
+          current_turn: "bob:detective-1",
+          thief_position: {1, 4},
+          detective_positions: %{
+            "bob:detective-1" => {3, 9},
+            "bob:detective-2" => {9, 5}
+          },
+          dice: {2, :eye},
+          turn_actions_remaining: [:move, :look]
+        })
+
+      view = Projection.project_state(state, "bob")
+
+      assert {3, 8} in view.valid_destinations
     end
   end
 end

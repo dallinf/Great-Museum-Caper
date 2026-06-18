@@ -66,8 +66,29 @@ defmodule MuseumCaper.Game.RulesMovementTest do
     })
   end
 
+  def two_player_full_round_state(thief_id, round_number) do
+    rotation = ["alice", "bob"]
+    players = full_round_players(thief_id, rotation)
+
+    State.new_game(players, [thief_id | Enum.reject(rotation, &(&1 == thief_id))], nil,
+      game_mode: :full,
+      thief_rotation: rotation,
+      round_number: round_number,
+      artwork_scores: %{"alice" => 0, "bob" => 0}
+    )
+    |> Map.merge(%{
+      phase: :playing,
+      thief_position: {3, 6},
+      turn_actions_remaining: []
+    })
+  end
+
   def full_round_players(thief_id) do
-    ["alice", "bob", "cora"]
+    full_round_players(thief_id, ["alice", "bob", "cora"])
+  end
+
+  def full_round_players(thief_id, rotation) do
+    rotation
     |> Enum.map(fn player_id ->
       role = if player_id == thief_id, do: :thief, else: :detective
       color = if role == :thief, do: :grey, else: :red
@@ -489,10 +510,25 @@ defmodule MuseumCaper.Game.RulesMovementTest do
   end
 
   describe "try_escape/2" do
-    test "lets thief escape through an unlocked window" do
+    test "limited game escape with fewer than three stolen paintings awards detectives" do
       state = %{
         base_state()
         | thief_position: {1, 5},
+          stolen_count: 2,
+          locks: Map.put(base_state().locks, :window_1_5, :open)
+      }
+
+      assert {:ok, :escaped_without_enough_art, state} = Rules.try_escape(state, :window_1_5)
+      assert state.phase == :game_over
+      assert state.winner == :detectives
+      assert state.game_over_reason == :escaped_without_enough_art
+    end
+
+    test "limited game escape with three stolen paintings awards the thief" do
+      state = %{
+        base_state()
+        | thief_position: {1, 5},
+          stolen_count: 3,
           locks: Map.put(base_state().locks, :window_1_5, :open)
       }
 
@@ -506,6 +542,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       state = %{
         base_state()
         | thief_position: {10, 6},
+          stolen_count: 3,
           locks: Map.put(base_state().locks, :exit_s1, :open)
       }
 
@@ -576,6 +613,40 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.detective_positions == %{"alice" => nil, "cora" => nil}
     end
 
+    test "two-player full game escape rotates to the next thief with two controlled pawns" do
+      state =
+        two_player_full_round_state("alice", 1)
+        |> Map.merge(%{
+          thief_position: {1, 5},
+          stolen_count: 2,
+          locks: Map.put(base_state().locks, :window_1_5, :open)
+        })
+
+      assert {:ok, :escaped, state} = Rules.try_escape(state, :window_1_5)
+      assert state.phase == :setup
+      assert state.thief_player_id == "bob"
+      assert state.players["bob"].role == :thief
+      assert state.players["alice"].role == :detective
+      assert state.artwork_scores["alice"] == 2
+
+      assert state.detective_positions == %{
+               "alice:detective-1" => nil,
+               "alice:detective-2" => nil
+             }
+
+      assert state.detective_controllers == %{
+               "alice:detective-1" => "alice",
+               "alice:detective-2" => "alice"
+             }
+
+      assert state.turn_order == [
+               "alice:detective-1",
+               "bob",
+               "alice:detective-2",
+               "bob"
+             ]
+    end
+
     test "full game reports the winner after every player has been the thief" do
       state =
         full_round_state("cora", 3)
@@ -594,6 +665,25 @@ defmodule MuseumCaper.Game.RulesMovementTest do
 
       assert [%{thief_player_id: "cora", stolen_count: 3, outcome: :thief}] =
                state.round_results
+    end
+
+    test "two-player full game detects capture by a controlled detective pawn" do
+      state = %{
+        two_player_full_round_state("bob", 2)
+        | current_turn: "alice:detective-1",
+          thief_position: {3, 8},
+          detective_positions: %{
+            "alice:detective-1" => {3, 8},
+            "alice:detective-2" => {9, 5}
+          },
+          dice: {1, :eye},
+          turn_actions_remaining: []
+      }
+
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.phase == :game_over
+      assert state.game_over_reason == :all_thieves_played
+      assert [%{thief_player_id: "bob", outcome: :detectives}] = state.round_results
     end
   end
 

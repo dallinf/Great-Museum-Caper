@@ -181,6 +181,59 @@ defmodule MuseumCaper.Game.ServerTest do
     assert state.players["alice"].color == :purple
   end
 
+  test "start_game creates two controlled detective pawns for two-player full games" do
+    game_id = "two-player-full-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert :ok = Server.add_player(pid, "bob", "Bob", :green)
+
+    assert {:ok, state} =
+             Server.start_game(pid, "alice",
+               shuffle: fn _order -> ["alice", "bob"] end,
+               game_mode: :full
+             )
+
+    assert state.game_mode == :full
+    assert state.thief_rotation == ["alice", "bob"]
+    assert state.thief_player_id == "alice"
+    assert state.players["alice"].role == :thief
+    assert state.players["bob"].role == :detective
+
+    assert state.detective_positions == %{
+             "bob:detective-1" => nil,
+             "bob:detective-2" => nil
+           }
+
+    assert state.detective_controllers == %{
+             "bob:detective-1" => "bob",
+             "bob:detective-2" => "bob"
+           }
+
+    assert state.turn_order == [
+             "bob:detective-1",
+             "alice",
+             "bob:detective-2",
+             "alice"
+           ]
+  end
+
+  test "start_game keeps one detective pawn for two-player limited games" do
+    game_id = "two-player-limited-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert :ok = Server.add_player(pid, "bob", "Bob", :green)
+
+    assert {:ok, state} =
+             Server.start_game(pid, "alice", shuffle: fn _order -> ["alice", "bob"] end)
+
+    assert state.game_mode == :limited
+    assert state.detective_positions == %{"bob" => nil}
+    assert state.detective_controllers == %{"bob" => "bob"}
+    assert state.turn_order == ["bob", "alice"]
+  end
+
   test "existing players can reconnect after the game starts" do
     game_id = "rejoin-#{System.unique_integer()}"
     {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
