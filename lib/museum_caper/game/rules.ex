@@ -1,6 +1,8 @@
 defmodule MuseumCaper.Game.Rules do
   alias MuseumCaper.Game.{Board, PawnColors, State}
 
+  @limited_escape_stolen_count 3
+
   # --- Setup ---
 
   def toggle_lock(%State{setup_step: :locks} = state, entry_id) do
@@ -392,7 +394,7 @@ defmodule MuseumCaper.Game.Rules do
       if state.thief_position == adj_cell do
         case Map.get(state.locks, exit_id, :open) do
           :open ->
-            {:ok, :escaped, state |> resolve_pending_steal() |> finish_round(:thief, :escaped)}
+            finish_escape(state)
 
           :locked ->
             {:ok, :locked,
@@ -407,6 +409,23 @@ defmodule MuseumCaper.Game.Rules do
       _ -> {:error, :invalid_entry}
     end
   end
+
+  defp finish_escape(state) do
+    state = resolve_pending_steal(state)
+
+    if limited_escape_without_enough_art?(state) do
+      {:ok, :escaped_without_enough_art,
+       finish_round(state, :detectives, :escaped_without_enough_art)}
+    else
+      {:ok, :escaped, finish_round(state, :thief, :escaped)}
+    end
+  end
+
+  defp limited_escape_without_enough_art?(%{game_mode: :limited, stolen_count: stolen_count}) do
+    stolen_count < @limited_escape_stolen_count
+  end
+
+  defp limited_escape_without_enough_art?(_state), do: false
 
   # --- Turn Advancement ---
 
@@ -424,13 +443,7 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp detective_caught_thief?(state) do
-    case Map.get(state.players, state.current_turn) do
-      %{role: :detective} ->
-        Map.get(state.detective_positions, state.current_turn) == state.thief_position
-
-      _player ->
-        false
-    end
+    Map.get(state.detective_positions, state.current_turn) == state.thief_position
   end
 
   defp catch_thief(state) do

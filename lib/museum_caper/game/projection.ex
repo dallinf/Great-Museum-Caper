@@ -58,6 +58,7 @@ defmodule MuseumCaper.Game.Projection do
 
   defp project_detective(state, player_id, base) do
     thief_position = if state.chase_mode, do: state.thief_position, else: nil
+    detective_id = active_detective_id(state, player_id)
 
     detective_cameras =
       Map.new(state.cameras, fn
@@ -67,9 +68,9 @@ defmodule MuseumCaper.Game.Projection do
       end)
 
     valid_destinations =
-      if state.current_turn == player_id and :move in state.turn_actions_remaining and
-           state.dice != nil do
-        Rules.valid_detective_destinations(state, player_id)
+      if detective_id != nil and turn_player_id(state) == player_id and
+           :move in state.turn_actions_remaining and state.dice != nil do
+        Rules.valid_detective_destinations(state, detective_id)
       else
         []
       end
@@ -79,6 +80,30 @@ defmodule MuseumCaper.Game.Projection do
       cameras: detective_cameras,
       valid_destinations: valid_destinations
     })
+  end
+
+  defp turn_player_id(state), do: controller_player_id(state, state.current_turn)
+
+  defp controller_player_id(_state, nil), do: nil
+
+  defp controller_player_id(state, turn_id) do
+    state
+    |> Map.get(:detective_controllers, %{})
+    |> Map.get(turn_id, turn_id)
+  end
+
+  defp active_detective_id(state, player_id) do
+    cond do
+      controller_player_id(state, state.current_turn) == player_id and
+          Map.has_key?(state.detective_positions, state.current_turn) ->
+        state.current_turn
+
+      Map.has_key?(state.detective_positions, player_id) ->
+        player_id
+
+      true ->
+        nil
+    end
   end
 
   defp filter_paintings(paintings, :thief), do: paintings

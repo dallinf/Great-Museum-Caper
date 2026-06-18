@@ -8,6 +8,11 @@ defmodule MuseumCaper.Game.StateTest do
     "det-2" => %{name: "Carol", role: :detective, color: :blue}
   }
 
+  @two_player_full_players %{
+    "alice" => %{name: "Alice", role: :thief, color: :grey},
+    "bob" => %{name: "Bob", role: :detective, color: :green}
+  }
+
   describe "new_game/1" do
     setup do
       {:ok, state: State.new_game(@players, ["thief-1", "det-1", "det-2"])}
@@ -54,6 +59,39 @@ defmodule MuseumCaper.Game.StateTest do
 
     test "setup_step is :locks", %{state: state} do
       assert state.setup_step == :locks
+    end
+
+    test "two-player full games give the detective player two controlled pawns" do
+      state =
+        State.new_game(@two_player_full_players, ["alice", "bob"], nil,
+          game_mode: :full,
+          thief_rotation: ["alice", "bob"]
+        )
+
+      assert state.detective_positions == %{
+               "bob:detective-1" => nil,
+               "bob:detective-2" => nil
+             }
+
+      assert state.detective_controllers == %{
+               "bob:detective-1" => "bob",
+               "bob:detective-2" => "bob"
+             }
+
+      assert state.turn_order == [
+               "bob:detective-1",
+               "alice",
+               "bob:detective-2",
+               "alice"
+             ]
+    end
+
+    test "two-player limited games keep one detective pawn" do
+      state = State.new_game(@two_player_full_players, ["alice", "bob"])
+
+      assert state.detective_positions == %{"bob" => nil}
+      assert state.detective_controllers == %{"bob" => "bob"}
+      assert state.turn_order == ["bob", "alice"]
     end
   end
 end

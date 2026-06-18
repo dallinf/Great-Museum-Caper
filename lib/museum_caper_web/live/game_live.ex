@@ -163,11 +163,7 @@ defmodule MuseumCaperWeb.GameLive do
   def handle_event("try_escape", %{"exit_id" => exit_id}, socket) do
     with {:ok, entry_id} <- parse_entry_id(exit_id),
          {:ok, result} <- Server.try_escape(socket.assigns.server, entry_id) do
-      message =
-        case result do
-          :escaped -> "The thief escaped. Game over."
-          :locked -> locked_escape_message(entry_id)
-        end
+      message = escape_result_message(result, entry_id)
 
       socket = assign(socket, :pending_escape_entry, nil)
 
@@ -192,7 +188,9 @@ defmodule MuseumCaperWeb.GameLive do
 
   @impl true
   def handle_event("look_pawn", _params, socket) do
-    case Server.use_eye_action(socket.assigns.server, socket.assigns.player_id) do
+    detective_id = active_detective_id(socket.assigns.game_state, socket.assigns.player_id)
+
+    case Server.use_eye_action(socket.assigns.server, detective_id) do
       {:ok, :chase_triggered} ->
         {:noreply, refresh_state(socket, "The detectives spotted the thief.")}
 
@@ -204,10 +202,11 @@ defmodule MuseumCaperWeb.GameLive do
   @impl true
   def handle_event("look_camera", %{"camera_id" => camera_id}, socket) do
     camera_id = String.to_integer(camera_id)
+    detective_id = active_detective_id(socket.assigns.game_state, socket.assigns.player_id)
 
     case Server.use_eye_on_camera(
            socket.assigns.server,
-           socket.assigns.player_id,
+           detective_id,
            camera_id
          ) do
       {:ok, {:sighting, camera_id}} ->
@@ -369,6 +368,7 @@ defmodule MuseumCaperWeb.GameLive do
                   <%= for player_id <- player_order(@game_state) do %>
                     <% player = @game_state.players[player_id] %>
                     <% current_turn? = current_turn_player?(@game_state, player_id) %>
+                    <% display_color = player_display_color(@game_state, player_id, player.color) %>
                     <% setup_thief? = setup_thief_player?(@game_state, player_id) %>
                     <li
                       class={[
@@ -390,10 +390,10 @@ defmodule MuseumCaperWeb.GameLive do
                     >
                       <span class="flex min-w-0 items-center gap-1 lg:gap-2">
                         <span
-                          data-player-color={player_color_status(player.color)}
+                          data-player-color={player_color_status(display_color)}
                           class={[
                             "block size-3 shrink-0 rounded-full border-2 lg:size-3.5",
-                            pawn_color_class(player.color)
+                            pawn_color_class(display_color)
                           ]}
                         >
                         </span>
@@ -1066,7 +1066,9 @@ defmodule MuseumCaperWeb.GameLive do
         <p class="mt-2 text-sm text-stone-200">
           Winner: <strong class="capitalize text-stone-50">{@game_state.winner}</strong>
         </p>
-        <p class="text-sm text-stone-400">Reason: {@game_state.game_over_reason}</p>
+        <p class="text-sm text-stone-400">
+          Reason: {game_over_reason_label(@game_state.game_over_reason)}
+        </p>
       <% end %>
     </div>
     """
@@ -1264,7 +1266,7 @@ defmodule MuseumCaperWeb.GameLive do
   end
 
   defp place_setup_piece(socket, %{setup_step: :pawns} = state, pos) do
-    detective_id = socket.assigns.player_id
+    detective_id = next_unplaced_detective_id(state, socket.assigns.player_id)
 
     with :ok <- validate_own_detective_pawn(state, detective_id) do
       Server.place_detective_pawn(socket.assigns.server, detective_id, pos)
@@ -1274,7 +1276,7 @@ defmodule MuseumCaperWeb.GameLive do
   defp handle_move_click(socket, pos) do
     state = socket.assigns.game_state
 
-    if state.current_turn != socket.assigns.player_id do
+    if not my_turn?(state, socket.assigns.player_id) do
       {:noreply, put_notice(socket, "It is not your turn.")}
     else
       result =
@@ -1283,7 +1285,8 @@ defmodule MuseumCaperWeb.GameLive do
             Server.move_thief(socket.assigns.server, pos)
 
           :detective ->
-            Server.move_detective(socket.assigns.server, socket.assigns.player_id, pos)
+            detective_id = active_detective_id(state, socket.assigns.player_id)
+            Server.move_detective(socket.assigns.server, detective_id, pos)
 
           _ ->
             {:error, :not_a_player}
@@ -1323,11 +1326,7 @@ defmodule MuseumCaperWeb.GameLive do
   defp handle_escape(socket, exit_id) do
     case Server.try_escape(socket.assigns.server, exit_id) do
       {:ok, result} ->
-        message =
-          case result do
-            :escaped -> "The thief escaped. Game over."
-            :locked -> locked_escape_message(exit_id)
-          end
+        message = escape_result_message(result, exit_id)
 
         socket = assign(socket, :pending_escape_entry, nil)
 
@@ -1382,7 +1381,7 @@ defmodule MuseumCaperWeb.GameLive do
   end
 
   defp banner_turn_player(%{phase: :thief_entry, thief_player_id: thief_id}), do: thief_id
-  defp banner_turn_player(%{current_turn: current_turn}), do: current_turn
+  defp banner_turn_player(state), do: turn_player_id(state)
 
   defp revealed_mark_keys(nil, _game_state, _player_id), do: []
 
@@ -1433,7 +1432,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp pawn_movement_animation_enabled?(previous_state, game_state, player_id) do
     previous_state.phase == :playing and game_state.phase == :playing and
-      game_state.current_turn != player_id
+      turn_player_id(game_state) != player_id
   end
 
   defp detective_movement_animation_keys(previous_state, game_state) do
@@ -1597,6 +1596,8 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
+  defp validate_own_detective_pawn(_state, nil), do: {:error, :detective_already_placed}
+
   defp validate_own_detective_pawn(state, detective_id) do
     case Map.fetch(state.detective_positions, detective_id) do
       {:ok, nil} -> :ok
@@ -1622,7 +1623,17 @@ defmodule MuseumCaperWeb.GameLive do
   defp start_game_message(:limited), do: "Game started. Detectives place the museum setup."
 
   defp player_order(%{phase: :lobby, turn_order: order}), do: order
-  defp player_order(state), do: Enum.uniq(state.turn_order)
+
+  defp player_order(%{game_mode: :full, thief_rotation: [_player_id | _]} = state) do
+    Enum.filter(state.thief_rotation, &Map.has_key?(state.players, &1))
+  end
+
+  defp player_order(state) do
+    state.turn_order
+    |> Enum.map(&controller_player_id(state, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
 
   defp full_game?(%{game_mode: :full}), do: true
   defp full_game?(_state), do: false
@@ -1672,8 +1683,45 @@ defmodule MuseumCaperWeb.GameLive do
   defp back_to_lobby_event(_state), do: "return_to_lobby"
 
   defp turn_player_id(%{phase: :thief_entry, thief_player_id: thief_id}), do: thief_id
-  defp turn_player_id(%{phase: :playing, current_turn: current_turn}), do: current_turn
+
+  defp turn_player_id(%{phase: :playing, current_turn: current_turn} = state),
+    do: controller_player_id(state, current_turn)
+
   defp turn_player_id(_state), do: nil
+
+  defp controller_player_id(_state, nil), do: nil
+
+  defp controller_player_id(state, turn_id) do
+    state
+    |> Map.get(:detective_controllers, %{})
+    |> Map.get(turn_id, turn_id)
+  end
+
+  defp active_detective_id(state, player_id) do
+    cond do
+      controller_player_id(state, state.current_turn) == player_id and
+          Map.has_key?(state.detective_positions, state.current_turn) ->
+        state.current_turn
+
+      Map.has_key?(state.detective_positions, player_id) ->
+        player_id
+
+      true ->
+        nil
+    end
+  end
+
+  defp next_unplaced_detective_id(state, player_id) do
+    state
+    |> controlled_detective_ids(player_id)
+    |> Enum.find(&(Map.get(state.detective_positions, &1) == nil))
+  end
+
+  defp controlled_detective_ids(state, player_id) do
+    state.detective_positions
+    |> Map.keys()
+    |> Enum.filter(&(controller_player_id(state, &1) == player_id))
+  end
 
   defp host?(%{phase: :lobby, turn_order: [host_id | _]}, player_id), do: host_id == player_id
   defp host?(_state, _player_id), do: false
@@ -1694,6 +1742,17 @@ defmodule MuseumCaperWeb.GameLive do
   defp player_role_label(:thief), do: "Thief"
   defp player_role_label(:detective), do: "Detective"
   defp player_role_label(role), do: role
+
+  defp player_display_color(state, player_id, player_color) do
+    if current_turn_player?(state, player_id) and player_role(state, player_id) == :detective do
+      case active_detective_id(state, player_id) do
+        nil -> player_color
+        detective_id -> detective_color(state, detective_id)
+      end
+    else
+      player_color
+    end
+  end
 
   defp latest_detective_result(state, player_id) do
     if Map.has_key?(state.players, player_id), do: latest_detective_result(state)
@@ -1857,7 +1916,7 @@ defmodule MuseumCaperWeb.GameLive do
       escape_choice_visible?(state, player_id, pending_escape_entry)
   end
 
-  defp my_turn?(state, player_id), do: state.current_turn == player_id
+  defp my_turn?(state, player_id), do: turn_player_id(state) == player_id
 
   defp motion_decision_buttons_visible?(state, player_id) do
     player_role(state, player_id) == :thief and motion_decision_pending?(state)
@@ -1871,7 +1930,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp escape_choice_visible?(state, player_id, pending_escape_entry) do
     pending_escape_entry != nil and player_role(state, player_id) == :thief and
-      state.current_turn == player_id
+      my_turn?(state, player_id)
   end
 
   defp escape_entry_type(entry_id) do
@@ -1936,7 +1995,7 @@ defmodule MuseumCaperWeb.GameLive do
       state.phase == :thief_entry ->
         player_role(state, player_id) == :thief and Board.entries_for_cell(pos) != []
 
-      state.phase == :playing and state.current_turn == player_id ->
+      state.phase == :playing and my_turn?(state, player_id) ->
         current_external_door_escape_entry_for_cell(state, player_id, pos) != nil or
           (not current_space_before_move?(state, player_id, pos) and
              (pos in valid_destinations(state, player_id) or
@@ -2007,7 +2066,8 @@ defmodule MuseumCaperWeb.GameLive do
             Board.camera_placeable_cell?(pos) and not occupied_for_setup?(state, pos)
 
           {:pawns, _cell} ->
-            Board.detective_placeable_cell?(pos) and own_detective_unplaced?(state, player_id) and
+            Board.detective_placeable_cell?(pos) and
+              controlled_detective_unplaced?(state, player_id) and
               not occupied_for_setup?(state, pos)
 
           _ ->
@@ -2016,8 +2076,8 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
-  defp own_detective_unplaced?(state, player_id),
-    do: Map.get(state.detective_positions, player_id) == nil
+  defp controlled_detective_unplaced?(state, player_id),
+    do: next_unplaced_detective_id(state, player_id) != nil
 
   defp occupied_for_setup?(state, pos) do
     Map.has_key?(state.paintings, pos) or
@@ -2033,7 +2093,7 @@ defmodule MuseumCaperWeb.GameLive do
     if :move in state.turn_actions_remaining do
       case player_role(state, player_id) do
         :thief -> Rules.valid_thief_destinations(state)
-        :detective when state.dice != nil -> Rules.valid_detective_destinations(state, player_id)
+        :detective when state.dice != nil -> detective_destinations_for_player(state, player_id)
         _ -> []
       end
     else
@@ -2053,8 +2113,15 @@ defmodule MuseumCaperWeb.GameLive do
   defp current_player_position(state, player_id) do
     case player_role(state, player_id) do
       :thief -> state.thief_position
-      :detective -> Map.get(state.detective_positions, player_id)
+      :detective -> Map.get(state.detective_positions, active_detective_id(state, player_id))
       _ -> nil
+    end
+  end
+
+  defp detective_destinations_for_player(state, player_id) do
+    case active_detective_id(state, player_id) do
+      nil -> []
+      detective_id -> Rules.valid_detective_destinations(state, detective_id)
     end
   end
 
@@ -2119,6 +2186,24 @@ defmodule MuseumCaperWeb.GameLive do
   defp power_cell?(_cell), do: false
 
   defp locked_escape_message(entry_id), do: "#{entry_label(entry_id)} lock is locked."
+
+  defp escape_result_message(:escaped, _entry_id), do: "The thief escaped. Game over."
+  defp escape_result_message(:locked, entry_id), do: locked_escape_message(entry_id)
+
+  defp escape_result_message(:escaped_without_enough_art, _entry_id),
+    do: "The thief escaped with fewer than 3 artworks. Detectives win."
+
+  defp game_over_reason_label(:escaped_without_enough_art),
+    do: "Escaped with fewer than 3 artworks"
+
+  defp game_over_reason_label(reason) when is_atom(reason) do
+    reason
+    |> Atom.to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
+  defp game_over_reason_label(reason), do: reason
 
   defp entry_label(entry_id) when is_atom(entry_id) do
     case Board.entry_by_id(entry_id) do
@@ -2338,8 +2423,43 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp detective_color(state, id) do
     case Map.get(state.players, id) do
-      %{color: color} -> color
-      nil -> PawnColors.default()
+      %{color: color} ->
+        color
+
+      nil ->
+        controlled_detective_color(state, id)
+    end
+  end
+
+  defp controlled_detective_color(state, id) do
+    controller_id = controller_player_id(state, id)
+
+    case Map.get(state.players, controller_id) do
+      %{color: color} ->
+        controlled_detective_color(state, controller_id, id, color)
+
+      nil ->
+        PawnColors.default()
+    end
+  end
+
+  defp controlled_detective_color(state, controller_id, id, controller_color) do
+    index =
+      state
+      |> controlled_detective_ids(controller_id)
+      |> Enum.find_index(&(&1 == id))
+
+    case index do
+      0 ->
+        controller_color
+
+      nil ->
+        PawnColors.default()
+
+      index ->
+        PawnColors.all()
+        |> Enum.reject(&(&1 == controller_color))
+        |> Enum.at(index - 1, PawnColors.default())
     end
   end
 

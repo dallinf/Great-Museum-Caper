@@ -693,6 +693,38 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(bob_view, "#game-notification")
   end
 
+  test "two-player full game detective controller places both pawns", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+    advance_to_pawns(pid)
+
+    {:ok, bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
+
+    player_rows =
+      bob_view
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#player-list > li")
+
+    assert Enum.count(player_rows) == 2
+
+    render_click(element(bob_view, "#cell-2-4"))
+
+    state = GameServer.get_state(pid)
+    assert state.detective_positions["player-bob:detective-1"] == {2, 4}
+    assert state.detective_positions["player-bob:detective-2"] == nil
+    assert state.phase == :setup
+
+    render_click(element(bob_view, "#cell-7-2"))
+
+    state = GameServer.get_state(pid)
+    assert state.detective_positions["player-bob:detective-1"] == {2, 4}
+    assert state.detective_positions["player-bob:detective-2"] == {7, 2}
+    assert state.phase == :thief_entry
+  end
+
   test "shared object cells layer pawns above artwork and camera marks", %{
     conn: conn,
     game_id: game_id
@@ -1022,6 +1054,51 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(alice_view, "#player-row-player-bob[data-turn-status='current']")
     refute has_element?(alice_view, "#player-row-player-alice[data-turn-status='current']")
+  end
+
+  test "two-player full game current detective row uses the active pawn color", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+    advance_to_pawns(pid)
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-1", {3, 9})
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-2", {9, 5})
+
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | current_turn: "player-bob:detective-2",
+          turn_order: [
+            "player-bob:detective-2",
+            "player-alice",
+            "player-bob:detective-1",
+            "player-alice"
+          ],
+          dice: {4, :eye},
+          turn_actions_remaining: [:move, :look]
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
+
+    assert has_element?(
+             bob_view,
+             "#player-row-player-bob[data-turn-status='current'] [data-player-color='purple']"
+           )
+
+    refute has_element?(
+             bob_view,
+             "#player-row-player-bob[data-turn-status='current'] [data-player-color='green']"
+           )
   end
 
   test "detectives see lock status during play but thief does not", %{
@@ -1629,6 +1706,49 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert GameServer.get_state(pid).detective_positions["player-alice"] == {3, 8}
   end
 
+  test "two-player full game detective controller moves the active pawn turn", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+    advance_to_pawns(pid)
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-1", {3, 9})
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-2", {9, 5})
+
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | current_turn: "player-bob:detective-1",
+          turn_order: [
+            "player-bob:detective-1",
+            "player-alice",
+            "player-bob:detective-2",
+            "player-alice"
+          ],
+          thief_position: {1, 4},
+          dice: {2, :eye},
+          turn_actions_remaining: [:move, :look]
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
+
+    assert has_element?(bob_view, "#cell-3-8.cursor-pointer")
+    render_click(element(bob_view, "#cell-3-8"))
+
+    state = GameServer.get_state(pid)
+    assert state.detective_positions["player-bob:detective-1"] == {3, 8}
+    assert state.detective_positions["player-bob:detective-2"] == {9, 5}
+  end
+
   test "detective can continue or undo partial movement before ending turn", %{
     conn: conn,
     game_id: game_id
@@ -1922,7 +2042,8 @@ defmodule MuseumCaperWeb.GameLiveTest do
     :sys.replace_state(pid, fn server_state ->
       game_state = %{
         server_state.game_state
-        | locks: Map.put(server_state.game_state.locks, :window_1_5, :open)
+        | locks: Map.put(server_state.game_state.locks, :window_1_5, :open),
+          stolen_count: 3
       }
 
       %{server_state | game_state: game_state}
@@ -1947,6 +2068,49 @@ defmodule MuseumCaperWeb.GameLiveTest do
     state = GameServer.get_state(pid)
     assert state.phase == :game_over
     assert state.winner == :thief
+  end
+
+  test "limited game escape without three artworks awards detectives", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | locks: Map.put(server_state.game_state.locks, :window_1_5, :open),
+          stolen_count: 2
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_thief_position!(pid, {1, 4})
+
+    {:ok, thief_view, _html} = live(conn, "/game/#{game_id}?player_name=Theo")
+
+    render_click(element(thief_view, "#cell-1-5"))
+    render_click(element(thief_view, "#confirm-escape-button"))
+
+    state = GameServer.get_state(pid)
+    assert state.phase == :game_over
+    assert state.winner == :detectives
+    assert state.game_over_reason == :escaped_without_enough_art
+
+    assert has_element?(
+             thief_view,
+             "#game-notification",
+             "The thief escaped with fewer than 3 artworks. Detectives win."
+           )
+
+    assert has_element?(
+             thief_view,
+             "#game-over-panel",
+             "Reason: Escaped with fewer than 3 artworks"
+           )
   end
 
   test "clicking a reachable window space immediately asks the thief about the lock", %{
@@ -2232,6 +2396,25 @@ defmodule MuseumCaperWeb.GameLiveTest do
       id: {:game_server, game_id},
       start: {GameServer, :start_link, [[game_id: game_id, players: @setup_players]]}
     })
+  end
+
+  defp start_two_player_full_game!(game_id) do
+    pid =
+      start_supervised!(%{
+        id: {:game_server, game_id},
+        start: {GameServer, :start_link, [[game_id: game_id, players: %{}]]}
+      })
+
+    assert :ok = GameServer.add_player(pid, "player-alice", "Alice", :purple)
+    assert :ok = GameServer.add_player(pid, "player-bob", "Bob", :green)
+
+    assert {:ok, _state} =
+             GameServer.start_game(pid, "player-alice",
+               shuffle: fn _order -> ["player-alice", "player-bob"] end,
+               game_mode: :full
+             )
+
+    pid
   end
 
   defp advance_to_paintings(pid) do

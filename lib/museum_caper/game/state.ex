@@ -27,6 +27,7 @@ defmodule MuseumCaper.Game.State do
             painting_labels: %{},
             cameras: %{},
             detective_positions: %{},
+            detective_controllers: %{},
             power_active: true,
             power_revealed: false,
             chase_mode: false,
@@ -41,12 +42,16 @@ defmodule MuseumCaper.Game.State do
       when is_map(players) do
     player_order = player_order || Map.keys(players)
     host_player_id = host_player_id || List.first(player_order)
+    game_mode = Keyword.get(opts, :game_mode, :limited)
 
     thief_id =
       Enum.find(player_order, fn player_id -> players[player_id].role == :thief end)
 
-    detective_ids =
+    detective_player_ids =
       Enum.filter(player_order, fn player_id -> players[player_id].role == :detective end)
+
+    detective_ids = detective_ids(game_mode, player_order, detective_player_ids)
+    detective_controllers = detective_controllers(detective_ids, detective_player_ids)
 
     entry_ids = Board.entries() |> Enum.map(& &1.id)
     locks = Map.new(entry_ids, fn id -> {id, :open} end)
@@ -60,7 +65,7 @@ defmodule MuseumCaper.Game.State do
       players: players,
       turn_order: turn_order,
       host_player_id: host_player_id,
-      game_mode: Keyword.get(opts, :game_mode, :limited),
+      game_mode: game_mode,
       thief_rotation: thief_rotation,
       round_number: Keyword.get(opts, :round_number, 1),
       artwork_scores: Keyword.get(opts, :artwork_scores, default_scores(thief_rotation)),
@@ -71,8 +76,35 @@ defmodule MuseumCaper.Game.State do
       locks: locks,
       cameras: cameras,
       detective_positions: detective_positions,
+      detective_controllers: detective_controllers,
       phase: :setup
     }
+  end
+
+  def controlled_detective_ids(controller_id) do
+    ["#{controller_id}:detective-1", "#{controller_id}:detective-2"]
+  end
+
+  defp detective_ids(:full, player_order, [controller_id]) when length(player_order) == 2 do
+    controlled_detective_ids(controller_id)
+  end
+
+  defp detective_ids(_game_mode, _player_order, detective_player_ids), do: detective_player_ids
+
+  defp detective_controllers(detective_ids, [controller_id]) when length(detective_ids) == 2 do
+    if Enum.all?(detective_ids, &String.starts_with?(&1, "#{controller_id}:detective-")) do
+      Map.new(detective_ids, fn detective_id -> {detective_id, controller_id} end)
+    else
+      self_controlled_detectives(detective_ids)
+    end
+  end
+
+  defp detective_controllers(detective_ids, _detective_player_ids) do
+    self_controlled_detectives(detective_ids)
+  end
+
+  defp self_controlled_detectives(detective_ids) do
+    Map.new(detective_ids, fn detective_id -> {detective_id, detective_id} end)
   end
 
   defp alternating_turn_order([], thief_id), do: [thief_id]
