@@ -7,7 +7,7 @@ defmodule MuseumCaperWeb.GameLive do
   def mount(%{"game_id" => game_id} = params, _session, socket) do
     case Registry.lookup(MuseumCaper.GameRegistry, game_id) do
       [] ->
-        {:ok, push_navigate(socket, to: "/")}
+        {:ok, push_navigate(socket, to: ~p"/")}
 
       [{_pid, _}] ->
         player_name = params |> Map.get("player_name", "") |> String.trim()
@@ -134,7 +134,7 @@ defmodule MuseumCaperWeb.GameLive do
       LobbyServer.close_game(socket.assigns.game_id)
     end
 
-    {:noreply, push_navigate(socket, to: "/")}
+    {:noreply, push_navigate(socket, to: ~p"/")}
   end
 
   @impl true

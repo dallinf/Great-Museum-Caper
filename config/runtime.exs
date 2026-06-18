@@ -39,6 +39,7 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "example.com"
   url_scheme = System.get_env("PHX_URL_SCHEME", "https")
   url_port = String.to_integer(System.get_env("PHX_URL_PORT", "443"))
+  url_path = System.get_env("PHX_URL_PATH", "/")
 
   check_origin =
     System.get_env("PHX_CHECK_ORIGIN", "")
@@ -49,7 +50,7 @@ if config_env() == :prod do
   config :museum_caper, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   endpoint_config = [
-    url: [host: host, port: url_port, scheme: url_scheme],
+    url: [host: host, port: url_port, scheme: url_scheme, path: url_path],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.

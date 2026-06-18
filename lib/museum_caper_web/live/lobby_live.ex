@@ -290,8 +290,7 @@ defmodule MuseumCaperWeb.LobbyLive do
   end
 
   defp game_path(game_id, player_name, player_color) do
-    query = URI.encode_query(%{player_name: player_name, player_color: player_color})
-    "/game/#{game_id}?#{query}"
+    ~p"/game/#{game_id}?#{[player_name: player_name, player_color: player_color]}"
   end
 
   defp ensure_join_form(socket, room) do
