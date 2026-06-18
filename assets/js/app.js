@@ -36,7 +36,12 @@ Hooks.ToastHook = ToastHook
 Hooks.TurnBannerHook = TurnBannerHook
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
-const liveSocket = new LiveSocket("/live", Socket, {
+const liveSocketPath =
+  document.currentScript?.dataset.liveSocketPath ||
+  document.querySelector("script[data-live-socket-path]")?.dataset.liveSocketPath ||
+  "/live"
+
+const liveSocket = new LiveSocket(liveSocketPath, Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
   hooks: {...colocatedHooks, ...Hooks},
