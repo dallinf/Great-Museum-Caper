@@ -246,7 +246,7 @@ defmodule MuseumCaper.Game.ServerTest do
            ]
   end
 
-  test "start_game keeps one detective pawn for two-player limited games" do
+  test "start_game creates two controlled detective pawns for two-player limited games" do
     game_id = "two-player-limited-#{System.unique_integer()}"
     {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
 
@@ -257,9 +257,23 @@ defmodule MuseumCaper.Game.ServerTest do
              Server.start_game(pid, "alice", shuffle: fn _order -> ["alice", "bob"] end)
 
     assert state.game_mode == :limited
-    assert state.detective_positions == %{"bob" => nil}
-    assert state.detective_controllers == %{"bob" => "bob"}
-    assert state.turn_order == ["bob", "alice"]
+
+    assert state.detective_positions == %{
+             "bob:detective-1" => nil,
+             "bob:detective-2" => nil
+           }
+
+    assert state.detective_controllers == %{
+             "bob:detective-1" => "bob",
+             "bob:detective-2" => "bob"
+           }
+
+    assert state.turn_order == [
+             "bob:detective-1",
+             "alice",
+             "bob:detective-2",
+             "alice"
+           ]
   end
 
   test "existing players can reconnect after the game starts" do

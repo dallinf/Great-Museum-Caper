@@ -85,7 +85,7 @@ defmodule MuseumCaper.Game.State do
     ["#{controller_id}:detective-1", "#{controller_id}:detective-2"]
   end
 
-  defp detective_ids(:full, player_order, [controller_id]) when length(player_order) == 2 do
+  defp detective_ids(_game_mode, player_order, [controller_id]) when length(player_order) == 2 do
     controlled_detective_ids(controller_id)
   end
 

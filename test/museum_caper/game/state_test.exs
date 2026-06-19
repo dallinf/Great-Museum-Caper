@@ -86,12 +86,25 @@ defmodule MuseumCaper.Game.StateTest do
              ]
     end
 
-    test "two-player limited games keep one detective pawn" do
+    test "two-player limited games give the detective player two controlled pawns" do
       state = State.new_game(@two_player_full_players, ["alice", "bob"])
 
-      assert state.detective_positions == %{"bob" => nil}
-      assert state.detective_controllers == %{"bob" => "bob"}
-      assert state.turn_order == ["bob", "alice"]
+      assert state.detective_positions == %{
+               "bob:detective-1" => nil,
+               "bob:detective-2" => nil
+             }
+
+      assert state.detective_controllers == %{
+               "bob:detective-1" => "bob",
+               "bob:detective-2" => "bob"
+             }
+
+      assert state.turn_order == [
+               "bob:detective-1",
+               "alice",
+               "bob:detective-2",
+               "alice"
+             ]
     end
   end
 end

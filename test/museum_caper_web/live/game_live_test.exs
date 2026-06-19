@@ -725,6 +725,30 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert state.phase == :thief_entry
   end
 
+  test "two-player limited game detective controller places both pawns", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_limited_game!(game_id)
+    advance_to_pawns(pid)
+
+    {:ok, bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
+
+    render_click(element(bob_view, "#cell-2-4"))
+
+    state = GameServer.get_state(pid)
+    assert state.detective_positions["player-bob:detective-1"] == {2, 4}
+    assert state.detective_positions["player-bob:detective-2"] == nil
+    assert state.phase == :setup
+
+    render_click(element(bob_view, "#cell-7-2"))
+
+    state = GameServer.get_state(pid)
+    assert state.detective_positions["player-bob:detective-1"] == {2, 4}
+    assert state.detective_positions["player-bob:detective-2"] == {7, 2}
+    assert state.phase == :thief_entry
+  end
+
   test "shared object cells layer pawns above artwork and camera marks", %{
     conn: conn,
     game_id: game_id
@@ -2400,6 +2424,14 @@ defmodule MuseumCaperWeb.GameLiveTest do
   end
 
   defp start_two_player_full_game!(game_id) do
+    start_two_player_game!(game_id, :full)
+  end
+
+  defp start_two_player_limited_game!(game_id) do
+    start_two_player_game!(game_id, :limited)
+  end
+
+  defp start_two_player_game!(game_id, game_mode) do
     pid =
       start_supervised!(%{
         id: {:game_server, game_id},
@@ -2412,7 +2444,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert {:ok, _state} =
              GameServer.start_game(pid, "player-alice",
                shuffle: fn _order -> ["player-alice", "player-bob"] end,
-               game_mode: :full
+               game_mode: game_mode
              )
 
     pid
