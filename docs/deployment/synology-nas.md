@@ -206,7 +206,10 @@ Use this if you are already SSH'd into the NAS or working from a terminal on the
    PLATFORM=linux/amd64 \
    PHX_HOST=dallinfrandsen.duckdns.org \
    HOST_PORT=4040 \
-   PHX_CHECK_ORIGIN=http://192.168.86.41:4040,http://dallinfrandsen.duckdns.org:4040 \
+   PHX_URL_SCHEME=https \
+   PHX_URL_PORT=443 \
+   PHX_URL_PATH=/museum_caper \
+   PHX_CHECK_ORIGIN=https://dallinfrandsen.duckdns.org \
    scripts/synology-build-image.sh
    ```
 
@@ -257,6 +260,7 @@ HOST_PORT=4000
 PHX_HOST=192.168.1.50
 PHX_URL_SCHEME=http
 PHX_URL_PORT=4000
+PHX_URL_PATH=/
 PHX_CHECK_ORIGIN=http://192.168.1.50:4000
 PHX_SERVER=true
 PORT=4000
@@ -269,6 +273,7 @@ Important values:
 - `PHX_HOST`: the host/IP users type into the browser.
 - `HOST_PORT`: the NAS port exposed to your LAN.
 - `PHX_URL_SCHEME` and `PHX_URL_PORT`: use `http`/`4000` for direct LAN access.
+- `PHX_URL_PATH`: use `/` for direct access, or a path prefix such as `/museum_caper` behind a reverse proxy.
 - `PHX_CHECK_ORIGIN`: comma-separated browser origins allowed to connect LiveView.
 
 If you want both a LAN URL and a DuckDNS URL to work, set `PHX_HOST` to the canonical public hostname and list both origins:
@@ -277,7 +282,18 @@ If you want both a LAN URL and a DuckDNS URL to work, set `PHX_HOST` to the cano
 PHX_HOST=dallinfrandsen.duckdns.org
 PHX_URL_SCHEME=http
 PHX_URL_PORT=4040
+PHX_URL_PATH=/
 PHX_CHECK_ORIGIN=http://192.168.86.41:4040,http://dallinfrandsen.duckdns.org:4040
+```
+
+If you are serving the app through an HTTPS reverse proxy at `/museum_caper`, use the public URL values instead:
+
+```dotenv
+PHX_HOST=dallinfrandsen.duckdns.org
+PHX_URL_SCHEME=https
+PHX_URL_PORT=443
+PHX_URL_PATH=/museum_caper
+PHX_CHECK_ORIGIN=https://dallinfrandsen.duckdns.org
 ```
 
 For an existing Synology deployment, edit the NAS `.env` directly:
@@ -290,6 +306,7 @@ sudo sed -i 's/^PHX_HOST=.*/PHX_HOST=dallinfrandsen.duckdns.org/' .env
 sudo sed -i 's/^HOST_PORT=.*/HOST_PORT=4040/' .env
 sudo sed -i 's/^PHX_URL_SCHEME=.*/PHX_URL_SCHEME=http/' .env
 sudo sed -i 's/^PHX_URL_PORT=.*/PHX_URL_PORT=4040/' .env
+sudo sed -i 's|^PHX_URL_PATH=.*|PHX_URL_PATH=/|' .env
 sudo sed -i 's|^PHX_CHECK_ORIGIN=.*|PHX_CHECK_ORIGIN=http://192.168.86.41:4040,http://dallinfrandsen.duckdns.org:4040|' .env
 
 sudo docker compose --env-file .env up -d

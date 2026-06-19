@@ -7,7 +7,16 @@ TAG="${TAG:-$(date +%Y%m%d-%H%M%S)}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 PHX_HOST="${PHX_HOST:-museum-caper.local}"
 HOST_PORT="${HOST_PORT:-4000}"
-PHX_CHECK_ORIGIN="${PHX_CHECK_ORIGIN:-http://${PHX_HOST}:${HOST_PORT}}"
+PHX_URL_SCHEME="${PHX_URL_SCHEME:-http}"
+PHX_URL_PORT="${PHX_URL_PORT:-${HOST_PORT}}"
+PHX_URL_PATH="${PHX_URL_PATH:-/}"
+default_origin="${PHX_URL_SCHEME}://${PHX_HOST}"
+
+if [[ ! ("${PHX_URL_SCHEME}" == "http" && "${PHX_URL_PORT}" == "80") && ! ("${PHX_URL_SCHEME}" == "https" && "${PHX_URL_PORT}" == "443") ]]; then
+  default_origin="${default_origin}:${PHX_URL_PORT}"
+fi
+
+PHX_CHECK_ORIGIN="${PHX_CHECK_ORIGIN:-${default_origin}}"
 PHX_FORCE_SSL="${PHX_FORCE_SSL:-false}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/deploy/synology/dist}"
 
@@ -53,8 +62,9 @@ IMAGE_NAME=${IMAGE_NAME}
 TAG=${TAG}
 HOST_PORT=${HOST_PORT}
 PHX_HOST=${PHX_HOST}
-PHX_URL_SCHEME=http
-PHX_URL_PORT=${HOST_PORT}
+PHX_URL_SCHEME=${PHX_URL_SCHEME}
+PHX_URL_PORT=${PHX_URL_PORT}
+PHX_URL_PATH=${PHX_URL_PATH}
 PHX_CHECK_ORIGIN=${PHX_CHECK_ORIGIN}
 PHX_SERVER=true
 PORT=4000
