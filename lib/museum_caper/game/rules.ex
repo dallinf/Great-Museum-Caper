@@ -429,15 +429,15 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp resolve_power_room_turn_end(state) do
-    case Map.get(state.players, state.current_turn) do
-      %{role: :thief} ->
+    cond do
+      state.current_turn == state.thief_player_id ->
         turn_power_off_on_power_room(state, state.thief_position)
 
-      %{role: :detective} ->
+      Map.has_key?(state.detective_positions, state.current_turn) ->
         pos = Map.get(state.detective_positions, state.current_turn)
         turn_power_on_on_power_room(state, pos)
 
-      _player ->
+      true ->
         state
     end
   end
@@ -453,6 +453,10 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp turn_power_on_on_power_room(state, _pos), do: state
+
+  defp turn_power_on_from_detective_action(state, detective_id) do
+    turn_power_on_on_power_room(state, Map.get(state.detective_positions, detective_id))
+  end
 
   defp power_room?(pos) do
     case Board.cell(pos) do
@@ -691,7 +695,11 @@ defmodule MuseumCaper.Game.Rules do
 
   def use_eye_action(state, detective_id) do
     pos = state.detective_positions[detective_id]
-    state = spend_eye_look(state)
+
+    state =
+      state
+      |> spend_eye_look()
+      |> turn_power_on_from_detective_action(detective_id)
 
     if Board.can_see?(pos, state.thief_position) do
       {:ok, :chase_triggered, spot_thief(state, {:look_pawn, :chase_triggered})}
@@ -700,8 +708,11 @@ defmodule MuseumCaper.Game.Rules do
     end
   end
 
-  def use_eye_on_camera(state, _detective_id, camera_id) do
-    state = spend_eye_look(state)
+  def use_eye_on_camera(state, detective_id, camera_id) do
+    state =
+      state
+      |> spend_eye_look()
+      |> turn_power_on_from_detective_action(detective_id)
 
     if not state.power_active do
       {:ok, :power_off,
@@ -763,7 +774,12 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   def use_camera_scan(state) do
-    state = spend_look(state)
+    detective_id = state.current_turn
+
+    state =
+      state
+      |> spend_look()
+      |> turn_power_on_from_detective_action(detective_id)
 
     if not state.power_active do
       {:ok, :power_off,

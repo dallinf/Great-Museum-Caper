@@ -1072,6 +1072,34 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       refute state.power_revealed
     end
 
+    test "controlled detective turns on power after ending turn on power room" do
+      players = %{
+        "alice" => %{name: "Alice", role: :thief, color: :grey},
+        "bob" => %{name: "Bob", role: :detective, color: :green}
+      }
+
+      state =
+        State.new_game(players, ["alice", "bob"])
+        |> Map.merge(%{
+          phase: :playing,
+          current_turn: "bob:detective-1",
+          turn_order: ["bob:detective-1", "alice", "bob:detective-2", "alice"],
+          detective_positions: %{
+            "bob:detective-1" => {11, 9},
+            "bob:detective-2" => {9, 5}
+          },
+          thief_position: {3, 6},
+          power_active: false,
+          power_revealed: true,
+          turn_actions_remaining: [:look]
+        })
+
+      {:ok, state} = Rules.end_turn(state)
+
+      assert state.power_active
+      refute state.power_revealed
+    end
+
     test "detective does not turn on power after moving away from power room before end turn" do
       state = %{
         base_state()
