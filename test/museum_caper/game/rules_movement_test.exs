@@ -447,11 +447,35 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert new_state.paintings[{3, 7}] == :targeted
     end
 
-    test "landing on power room disables power" do
+    test "thief turns off power only after ending turn on power room" do
       # other_right {10,9} is same zone as power_room {11,9}
-      state = %{base_state() | thief_position: {10, 9}}
-      {:ok, new_state} = Rules.move_thief(state, {11, 9})
-      assert new_state.power_active == false
+      state = %{
+        base_state()
+        | current_turn: "t",
+          turn_order: ["t", "d1", "t", "d2"],
+          thief_position: {10, 9}
+      }
+
+      {:ok, state} = Rules.move_thief(state, {11, 9})
+      assert state.power_active
+
+      {:ok, state} = Rules.end_turn(state)
+      refute state.power_active
+    end
+
+    test "thief does not turn off power after moving away from power room before end turn" do
+      state = %{
+        base_state()
+        | current_turn: "t",
+          turn_order: ["t", "d1", "t", "d2"],
+          thief_position: {10, 9}
+      }
+
+      {:ok, state} = Rules.move_thief(state, {11, 9})
+      {:ok, state} = Rules.move_thief(state, {11, 8})
+      {:ok, state} = Rules.end_turn(state)
+
+      assert state.power_active
     end
   end
 
@@ -748,6 +772,44 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.detective_positions["d1"] == {3, 9}
       assert {:error, :movement_required} = Rules.end_turn(state)
       assert state.phase == :playing
+    end
+
+    test "detective turns on power only after ending turn on power room" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          dice: {2, :eye},
+          detective_positions: %{"d1" => {10, 9}, "d2" => {9, 5}},
+          power_active: false,
+          power_revealed: true,
+          turn_actions_remaining: [:move, :look]
+      }
+
+      {:ok, state} = Rules.move_detective(state, "d1", {11, 9})
+      refute state.power_active
+
+      {:ok, state} = Rules.end_turn(state)
+      assert state.power_active
+      refute state.power_revealed
+    end
+
+    test "detective does not turn on power after moving away from power room before end turn" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          dice: {2, :eye},
+          detective_positions: %{"d1" => {10, 9}, "d2" => {9, 5}},
+          power_active: false,
+          power_revealed: true,
+          turn_actions_remaining: [:move, :look]
+      }
+
+      {:ok, state} = Rules.move_detective(state, "d1", {11, 9})
+      {:ok, state} = Rules.move_detective(state, "d1", {11, 8})
+      {:ok, state} = Rules.end_turn(state)
+
+      refute state.power_active
+      assert state.power_revealed
     end
   end
 

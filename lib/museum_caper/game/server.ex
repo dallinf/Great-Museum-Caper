@@ -156,11 +156,13 @@ defmodule MuseumCaper.Game.Server do
   def handle_call(:use_camera_scan, _from, server_state) do
     case Rules.use_camera_scan(server_state.game_state) do
       {:ok, disabled_ids, result, new_game_state} ->
+        new_game_state = maybe_end_turn_after_look(new_game_state)
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
         {:reply, {:ok, disabled_ids, result}, server_state}
 
       {:ok, :power_off, new_game_state} ->
+        new_game_state = maybe_end_turn_after_look(new_game_state)
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
         {:reply, {:ok, :power_off}, server_state}
@@ -220,12 +222,35 @@ defmodule MuseumCaper.Game.Server do
   defp handle_look(server_state, fun) do
     case fun.(server_state.game_state) do
       {:ok, result, new_game_state} ->
+        new_game_state = maybe_end_turn_after_look(new_game_state)
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
         {:reply, {:ok, result}, server_state}
 
       error ->
         {:reply, error, server_state}
+    end
+  end
+
+  defp maybe_end_turn_after_look(game_state) do
+    if detective_finished_look_after_moving?(game_state) do
+      case Rules.end_turn(game_state) do
+        {:ok, new_game_state} -> new_game_state
+        {:error, _reason} -> game_state
+      end
+    else
+      game_state
+    end
+  end
+
+  defp detective_finished_look_after_moving?(game_state) do
+    case Map.get(game_state.players, game_state.current_turn) do
+      %{role: :detective} ->
+        :look not in game_state.turn_actions_remaining and game_state.movement_path != [] and
+          game_state.movement_spent > 0
+
+      _player ->
+        false
     end
   end
 

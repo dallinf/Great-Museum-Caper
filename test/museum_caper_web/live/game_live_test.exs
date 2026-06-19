@@ -736,7 +736,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='3000']",
+             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='3000'][data-turn-banner-chime='loud']",
              "Your Turn"
            )
 
@@ -771,7 +771,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              thief_view,
-             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='3000']",
+             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='3000'][data-turn-banner-chime='loud']",
              "Your Turn"
            )
 
@@ -941,7 +941,10 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     render_click(element(thief_view, "#cell-11-9"))
 
-    assert GameServer.get_state(pid).power_active == false
+    assert GameServer.get_state(pid).power_active
+    render_click(element(thief_view, "#end-turn-button"))
+
+    refute GameServer.get_state(pid).power_active
     refute GameServer.get_state(pid).power_revealed
     refute has_element?(alice_view, "#power-status")
 

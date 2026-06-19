@@ -186,19 +186,10 @@ defmodule MuseumCaper.Game.Rules do
 
   defp resolve_thief_landing(state) do
     pos = state.thief_position
-    state = check_power_room(state, pos)
     state = check_camera(state, pos)
     state = check_painting(state, pos)
     state
   end
-
-  defp check_power_room(%{power_active: true} = state, pos) do
-    if Board.cell(pos).type == :power_room,
-      do: %{state | power_active: false},
-      else: state
-  end
-
-  defp check_power_room(state, _pos), do: state
 
   defp check_camera(state, pos) do
     case Enum.find(state.cameras, fn {_, v} -> v && v.pos == pos && v.status == :active end) do
@@ -301,7 +292,7 @@ defmodule MuseumCaper.Game.Rules do
             blocking_painting_cells(state)
           )
 
-        {:ok, check_detective_power_room(state, destination)}
+        {:ok, state}
       else
         {:error, :invalid_move}
       end
@@ -309,14 +300,6 @@ defmodule MuseumCaper.Game.Rules do
       {:error, :invalid_move}
     end
   end
-
-  defp check_detective_power_room(%{power_active: false} = state, pos) do
-    if Board.cell(pos).type == :power_room,
-      do: %{state | power_active: true, power_revealed: false},
-      else: state
-  end
-
-  defp check_detective_power_room(state, _), do: state
 
   defp move_player(state, role, player_id, destination, allowance, blocked) do
     current = player_position(state, role, player_id)
@@ -396,11 +379,47 @@ defmodule MuseumCaper.Game.Rules do
       :move in state.turn_actions_remaining and not movement_made?(state) ->
         {:error, :movement_required}
 
-      detective_caught_thief?(state) ->
-        {:ok, catch_thief(state)}
-
       true ->
-        {:ok, advance_turn(state)}
+        state = resolve_power_room_turn_end(state)
+
+        if detective_caught_thief?(state) do
+          {:ok, catch_thief(state)}
+        else
+          {:ok, advance_turn(state)}
+        end
+    end
+  end
+
+  defp resolve_power_room_turn_end(state) do
+    case Map.get(state.players, state.current_turn) do
+      %{role: :thief} ->
+        turn_power_off_on_power_room(state, state.thief_position)
+
+      %{role: :detective} ->
+        pos = Map.get(state.detective_positions, state.current_turn)
+        turn_power_on_on_power_room(state, pos)
+
+      _player ->
+        state
+    end
+  end
+
+  defp turn_power_off_on_power_room(%{power_active: true} = state, pos) do
+    if power_room?(pos), do: %{state | power_active: false}, else: state
+  end
+
+  defp turn_power_off_on_power_room(state, _pos), do: state
+
+  defp turn_power_on_on_power_room(%{power_active: false} = state, pos) do
+    if power_room?(pos), do: %{state | power_active: true, power_revealed: false}, else: state
+  end
+
+  defp turn_power_on_on_power_room(state, _pos), do: state
+
+  defp power_room?(pos) do
+    case Board.cell(pos) do
+      %{type: :power_room} -> true
+      _cell -> false
     end
   end
 
