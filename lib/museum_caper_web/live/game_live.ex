@@ -664,8 +664,8 @@ defmodule MuseumCaperWeb.GameLive do
             id="turn-banner"
             phx-hook="TurnBannerHook"
             data-turn-banner-key={@turn_banner_key}
-            data-turn-banner-duration="5000"
-            data-turn-banner-chime="true"
+            data-turn-banner-duration="3000"
+            data-turn-banner-chime="loud"
             role="status"
             aria-live="assertive"
             class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center px-4"

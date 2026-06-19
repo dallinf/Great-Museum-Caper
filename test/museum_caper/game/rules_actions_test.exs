@@ -93,6 +93,22 @@ defmodule MuseumCaper.Game.RulesActionsTest do
 
       assert_steal_revealed(new_state)
     end
+
+    test "turns power on when looking from a detective on the power room" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          detective_positions: %{"d1" => {11, 9}, "d2" => {1, 1}},
+          thief_position: {1, 4},
+          power_active: false,
+          power_revealed: true
+      }
+
+      {:ok, :no_sighting, new_state} = Rules.use_eye_action(state, "d1")
+
+      assert new_state.power_active
+      refute new_state.power_revealed
+    end
   end
 
   describe "use_eye_on_camera/3 (single camera)" do
@@ -132,6 +148,21 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       state = %{base_state() | power_active: false}
       {:ok, :power_off, new_state} = Rules.use_eye_on_camera(state, "d1", 1)
       assert new_state.power_revealed
+    end
+
+    test "turns power on before looking through a camera from the power room" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          detective_positions: %{"d1" => {11, 9}, "d2" => {1, 1}},
+          power_active: false,
+          power_revealed: true
+      }
+
+      {:ok, {:sighting, 1}, new_state} = Rules.use_eye_on_camera(state, "d1", 1)
+
+      assert new_state.power_active
+      refute new_state.power_revealed
     end
 
     test "keeps detective movement available after looking through a camera before moving" do
@@ -204,6 +235,21 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       state = %{base_state() | power_active: false}
       {:ok, :power_off, new_state} = Rules.use_camera_scan(state)
       assert new_state.power_revealed
+    end
+
+    test "turns power on before camera scan from the power room" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          detective_positions: %{"d1" => {11, 9}, "d2" => {1, 1}},
+          power_active: false,
+          power_revealed: true
+      }
+
+      {:ok, [3], {:sighting, [1]}, new_state} = Rules.use_camera_scan(state)
+
+      assert new_state.power_active
+      refute new_state.power_revealed
     end
   end
 

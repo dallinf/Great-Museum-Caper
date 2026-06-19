@@ -1,3 +1,6 @@
+const DEFAULT_DURATION_MS = 3000;
+const LOUD_CHIME_VOLUME = 0.18;
+
 let audioContext = null;
 let audioUnlockInstalled = false;
 
@@ -38,11 +41,11 @@ const installAudioUnlock = () => {
   });
 };
 
-const playTone = (context, frequency, startTime, duration, volume) => {
+const playTone = (context, frequency, startTime, duration, volume, type = "sine") => {
   const oscillator = context.createOscillator();
   const gain = context.createGain();
 
-  oscillator.type = "sine";
+  oscillator.type = type;
   oscillator.frequency.setValueAtTime(frequency, startTime);
   gain.gain.setValueAtTime(0.0001, startTime);
   gain.gain.exponentialRampToValueAtTime(volume, startTime + 0.03);
@@ -54,23 +57,30 @@ const playTone = (context, frequency, startTime, duration, volume) => {
   oscillator.stop(startTime + duration + 0.04);
 };
 
-const scheduleTurnChime = context => {
+const scheduleTurnChime = (context, chime) => {
   const startTime = context.currentTime + 0.03;
-  playTone(context, 659.25, startTime, 0.18, 0.045);
-  playTone(context, 987.77, startTime + 0.11, 0.26, 0.035);
+
+  if (chime === "loud") {
+    playTone(context, 659.25, startTime, 0.28, LOUD_CHIME_VOLUME, "triangle");
+    playTone(context, 987.77, startTime + 0.08, 0.34, LOUD_CHIME_VOLUME * 0.78, "triangle");
+    playTone(context, 1318.51, startTime + 0.2, 0.38, LOUD_CHIME_VOLUME * 0.62, "triangle");
+  } else {
+    playTone(context, 659.25, startTime, 0.18, 0.045);
+    playTone(context, 987.77, startTime + 0.11, 0.26, 0.035);
+  }
 };
 
-const resumeAndScheduleTurnChime = context => {
+const resumeAndScheduleTurnChime = (context, chime) => {
   context.resume()
     .then(() => {
       if (context.state !== "suspended") {
-        scheduleTurnChime(context);
+        scheduleTurnChime(context, chime);
       }
     })
     .catch(() => {});
 };
 
-const playTurnChime = () => {
+const playTurnChime = chime => {
   const context = getAudioContext();
 
   if (!context) {
@@ -78,11 +88,11 @@ const playTurnChime = () => {
   }
 
   if (context.state === "suspended") {
-    resumeAndScheduleTurnChime(context);
+    resumeAndScheduleTurnChime(context, chime);
     return;
   }
 
-  scheduleTurnChime(context);
+  scheduleTurnChime(context, chime);
 };
 
 const TurnBannerHook = {
@@ -142,8 +152,10 @@ const TurnBannerHook = {
     this.playChime();
   },
   playChime() {
-    if (this.el.dataset.turnBannerChime === "true") {
-      playTurnChime();
+    const chime = this.el.dataset.turnBannerChime;
+
+    if (["loud", "true"].includes(chime)) {
+      playTurnChime(chime);
     }
   },
   hide() {
@@ -188,7 +200,8 @@ const TurnBannerHook = {
     return this.el.querySelector("[data-turn-banner-panel]") || this.el;
   },
   duration() {
-    return Number.parseInt(this.el.dataset.turnBannerDuration || "5000", 10);
+    const duration = Number.parseInt(this.el.dataset.turnBannerDuration || `${DEFAULT_DURATION_MS}`, 10);
+    return Number.isFinite(duration) && duration > 0 ? duration : DEFAULT_DURATION_MS;
   },
   prefersReducedMotion() {
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
