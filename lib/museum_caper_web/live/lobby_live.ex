@@ -14,6 +14,7 @@ defmodule MuseumCaperWeb.LobbyLive do
        rooms: LobbyServer.list_rooms(),
        error: nil,
        joining: nil,
+       join_forms: %{},
        create_form:
          to_form(
            %{"name" => "", "player_name" => "", "player_color" => default_pawn_color()},
@@ -54,8 +55,13 @@ defmodule MuseumCaperWeb.LobbyLive do
   @impl true
   def handle_event("show_join", %{"game_id" => game_id}, socket) do
     case room_by_game_id(socket.assigns.rooms, game_id) do
-      %{phase: :lobby} ->
-        {:noreply, assign(socket, joining: game_id, error: nil)}
+      %{phase: :lobby} = room ->
+        socket =
+          socket
+          |> assign(joining: game_id, error: nil)
+          |> ensure_join_form(room)
+
+        {:noreply, socket}
 
       _room ->
         {:noreply, assign(socket, joining: nil, error: "game already in progress")}
@@ -64,16 +70,26 @@ defmodule MuseumCaperWeb.LobbyLive do
 
   @impl true
   def handle_event("cancel_join", _params, socket) do
-    {:noreply, assign(socket, joining: nil, error: nil)}
+    join_forms = Map.delete(socket.assigns.join_forms, socket.assigns.joining)
+    {:noreply, assign(socket, joining: nil, error: nil, join_forms: join_forms)}
+  end
+
+  @impl true
+  def handle_event("change_join_room_form", params, socket) do
+    params = join_params(params)
+    %{"game_id" => game_id} = params
+
+    {:noreply, assign_join_form(socket, game_id, params)}
   end
 
   @impl true
   def handle_event("join_room", params, socket) do
     %{"game_id" => game_id, "player_name" => player_name, "player_color" => player_color} =
-      join_params(params)
+      params = join_params(params)
 
     player_name = String.trim(player_name)
     room = room_by_game_id(socket.assigns.rooms, game_id)
+    socket = assign_join_form(socket, game_id, params)
 
     cond do
       player_name == "" ->
@@ -106,8 +122,8 @@ defmodule MuseumCaperWeb.LobbyLive do
         <section class="rounded-lg border border-stone-700 bg-stone-900 p-5 shadow-2xl shadow-black/30">
           <p class="text-xs font-black uppercase tracking-[0.22em] text-amber-300">Private room</p>
           <h1 class="mt-2 text-4xl font-black tracking-normal text-stone-50">Set the caper.</h1>
-          <p class="mt-3 text-sm leading-6 text-stone-400">
-            Create a local room, open it in another browser or private window, and join as the second player.
+          <p id="lobby-intro-copy" class="mt-3 text-sm leading-6 text-stone-400">
+            Create a room and share it with players. Start the game when everyone has joined.
           </p>
 
           <.form
@@ -205,10 +221,11 @@ defmodule MuseumCaperWeb.LobbyLive do
                   </div>
 
                   <%= if @joining == room.game_id and room.phase == :lobby do %>
-                    <% join_form = join_form(room) %>
+                    <% join_form = join_form(room, @join_forms) %>
                     <.form
                       for={join_form}
                       id={"join-room-form-#{room.game_id}"}
+                      phx-change="change_join_room_form"
                       phx-submit="join_room"
                       class="mt-4 grid gap-3"
                     >
@@ -273,19 +290,36 @@ defmodule MuseumCaperWeb.LobbyLive do
   end
 
   defp game_path(game_id, player_name, player_color) do
-    query = URI.encode_query(%{player_name: player_name, player_color: player_color})
-    "/game/#{game_id}?#{query}"
+    ~p"/game/#{game_id}?#{[player_name: player_name, player_color: player_color]}"
   end
 
-  defp join_form(room) do
-    to_form(
-      %{
-        "game_id" => room.game_id,
-        "player_name" => "",
-        "player_color" => default_pawn_color(room)
-      },
-      as: :join
-    )
+  defp ensure_join_form(socket, room) do
+    if Map.has_key?(socket.assigns.join_forms, room.game_id) do
+      socket
+    else
+      assign_join_form(socket, room.game_id, default_join_params(room))
+    end
+  end
+
+  defp assign_join_form(socket, game_id, params) do
+    assign(socket, :join_forms, Map.put(socket.assigns.join_forms, game_id, params))
+  end
+
+  defp join_form(room, join_forms) do
+    params =
+      join_forms
+      |> Map.get(room.game_id, default_join_params(room))
+      |> Map.put("game_id", room.game_id)
+
+    to_form(params, as: :join)
+  end
+
+  defp default_join_params(room) do
+    %{
+      "game_id" => room.game_id,
+      "player_name" => "",
+      "player_color" => default_pawn_color(room)
+    }
   end
 
   defp default_pawn_color, do: PawnColors.to_param(PawnColors.default())

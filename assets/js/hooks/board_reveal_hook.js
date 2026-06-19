@@ -14,12 +14,16 @@ const BoardRevealHook = {
   },
   showIfNew() {
     const key = this.el.dataset.revealKey;
+    const revealOnce = this.el.dataset.revealOnce !== "false";
 
-    if (!key || seenRevealKeys.has(key) || key === this.currentKey) {
+    if (!key || key === this.currentKey || (revealOnce && seenRevealKeys.has(key))) {
       return;
     }
 
-    seenRevealKeys.add(key);
+    if (revealOnce) {
+      seenRevealKeys.add(key);
+    }
+
     this.currentKey = key;
     this.show();
   },

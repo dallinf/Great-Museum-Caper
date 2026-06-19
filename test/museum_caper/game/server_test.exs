@@ -45,32 +45,32 @@ defmodule MuseumCaper.Game.ServerTest do
     assert_receive {:state_changed, _state}, 500
   end
 
-  test "ends detective turn after moved detective uses pawn look", %{pid: pid} do
+  test "spends remaining detective actions after moved detective uses pawn look", %{pid: pid} do
     set_moved_detective_look_turn!(pid, {1, :eye})
 
     assert {:ok, _state} = Server.move_detective(pid, "d1", {3, 8})
     assert {:ok, :no_sighting} = Server.use_eye_action(pid, "d1")
 
     state = Server.get_state(pid)
-    assert state.current_turn == "t"
-    assert state.turn_order == ["t", "d2", "t", "d1"]
-    assert state.turn_actions_remaining == [:move]
-    assert state.dice == nil
+    assert state.current_turn == "d1"
+    assert state.turn_order == ["d1", "t", "d2", "t"]
+    assert state.turn_actions_remaining == []
+    assert state.dice == {1, :eye}
     assert state.detective_result == {:look_pawn, :no_sighting}
   end
 
-  test "ends detective turn after moved detective uses camera scan", %{pid: pid} do
-    set_moved_detective_look_turn!(pid, {1, :camera_scan})
+  test "spends remaining detective actions after moved detective uses camera look", %{pid: pid} do
+    set_moved_detective_look_turn!(pid, {1, :eye})
 
     assert {:ok, _state} = Server.move_detective(pid, "d1", {3, 8})
-    assert {:ok, [], :no_sighting} = Server.use_camera_scan(pid)
+    assert {:ok, :no_sighting} = Server.use_eye_on_camera(pid, "d1", 1)
 
     state = Server.get_state(pid)
-    assert state.current_turn == "t"
-    assert state.turn_order == ["t", "d2", "t", "d1"]
-    assert state.turn_actions_remaining == [:move]
-    assert state.dice == nil
-    assert state.detective_result == {:camera_scan, [], :no_sighting}
+    assert state.current_turn == "d1"
+    assert state.turn_order == ["d1", "t", "d2", "t"]
+    assert state.turn_actions_remaining == []
+    assert state.dice == {1, :eye}
+    assert state.detective_result == {:look_camera, {:no_sighting, 1}}
   end
 
   test "players can join a lobby game before it starts" do
@@ -182,6 +182,86 @@ defmodule MuseumCaper.Game.ServerTest do
     assert state.thief_player_id == "cora"
   end
 
+  test "start_game can start a full game with thief rotation and artwork scores" do
+    game_id = "full-game-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert :ok = Server.add_player(pid, "bob", "Bob", :green)
+    assert :ok = Server.add_player(pid, "cora", "Cora", :yellow)
+
+    assert {:ok, state} =
+             Server.start_game(pid, "alice",
+               shuffle: fn _order -> ["bob", "cora", "alice"] end,
+               game_mode: :full
+             )
+
+    assert state.game_mode == :full
+    assert state.thief_rotation == ["bob", "cora", "alice"]
+    assert state.round_number == 1
+    assert state.artwork_scores == %{"bob" => 0, "cora" => 0, "alice" => 0}
+    assert state.thief_player_id == "bob"
+    assert state.players["bob"].role == :thief
+    assert state.players["bob"].color == :grey
+    assert state.players["cora"].role == :detective
+    assert state.players["cora"].color == :yellow
+    assert state.players["alice"].role == :detective
+    assert state.players["alice"].color == :purple
+  end
+
+  test "start_game creates two controlled detective pawns for two-player full games" do
+    game_id = "two-player-full-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert :ok = Server.add_player(pid, "bob", "Bob", :green)
+
+    assert {:ok, state} =
+             Server.start_game(pid, "alice",
+               shuffle: fn _order -> ["alice", "bob"] end,
+               game_mode: :full
+             )
+
+    assert state.game_mode == :full
+    assert state.thief_rotation == ["alice", "bob"]
+    assert state.thief_player_id == "alice"
+    assert state.players["alice"].role == :thief
+    assert state.players["bob"].role == :detective
+
+    assert state.detective_positions == %{
+             "bob:detective-1" => nil,
+             "bob:detective-2" => nil
+           }
+
+    assert state.detective_controllers == %{
+             "bob:detective-1" => "bob",
+             "bob:detective-2" => "bob"
+           }
+
+    assert state.turn_order == [
+             "bob:detective-1",
+             "alice",
+             "bob:detective-2",
+             "alice"
+           ]
+  end
+
+  test "start_game keeps one detective pawn for two-player limited games" do
+    game_id = "two-player-limited-#{System.unique_integer()}"
+    {:ok, pid} = Server.start_link(game_id: game_id, players: %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert :ok = Server.add_player(pid, "bob", "Bob", :green)
+
+    assert {:ok, state} =
+             Server.start_game(pid, "alice", shuffle: fn _order -> ["alice", "bob"] end)
+
+    assert state.game_mode == :limited
+    assert state.detective_positions == %{"bob" => nil}
+    assert state.detective_controllers == %{"bob" => "bob"}
+    assert state.turn_order == ["bob", "alice"]
+  end
+
   test "existing players can reconnect after the game starts" do
     game_id = "rejoin-#{System.unique_integer()}"
     pid = start_game_server!(game_id, %{})
@@ -220,6 +300,7 @@ defmodule MuseumCaper.Game.ServerTest do
           turn_order: ["d1", "t", "d2", "t"],
           thief_position: {1, 4},
           detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
+          cameras: %{1 => %{pos: {3, 6}, status: :active}, 2 => nil, 3 => nil, 4 => nil},
           dice: dice,
           turn_actions_remaining: [:move, :look],
           movement_path: [],

@@ -1,5 +1,5 @@
 defmodule MuseumCaper.Game.Board do
-  @moduledoc "Static board definition for Museum Caper."
+  @moduledoc "Static board definition for The Great Museum Caper."
 
   # Grid: 11 rows × 12 columns. nil = non-playable (outside museum boundary).
   #

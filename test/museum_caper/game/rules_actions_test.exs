@@ -43,6 +43,44 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       refute :look in new_state.turn_actions_remaining
     end
 
+    test "keeps detective movement available after looking from pawn before moving" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          dice: {4, :eye},
+          thief_position: {1, 6}
+      }
+
+      {:ok, :no_sighting, new_state} = Rules.use_eye_action(state, "d1")
+
+      refute :look in new_state.turn_actions_remaining
+      assert :move in new_state.turn_actions_remaining
+      assert new_state.movement_spent == 0
+      assert {:error, :movement_required} = Rules.end_turn(new_state)
+      assert {:ok, moved_state} = Rules.move_detective(new_state, "d1", {3, 8})
+      assert moved_state.detective_positions["d1"] == {3, 8}
+    end
+
+    test "spends remaining detective movement after looking from pawn after moving" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          dice: {4, :eye},
+          thief_position: {1, 6}
+      }
+
+      {:ok, moved_state} = Rules.move_detective(state, "d1", {3, 8})
+      {:ok, :no_sighting, new_state} = Rules.use_eye_action(moved_state, "d1")
+
+      refute :look in new_state.turn_actions_remaining
+      refute :move in new_state.turn_actions_remaining
+      assert {:error, :invalid_move} = Rules.move_detective(new_state, "d1", {4, 9})
+      assert {:ok, advanced_state} = Rules.end_turn(new_state)
+      assert advanced_state.current_turn == "t"
+    end
+
     test "triggers chase when thief is in LOS" do
       # d1 at {4,5}, thief at {4,7}: east ray from d1 hits {4,6} (corridor) then {4,7} (thief!)
       state = base_state()
@@ -68,7 +106,8 @@ defmodule MuseumCaper.Game.RulesActionsTest do
     test "returns :no_sighting when active camera can't see thief" do
       # Camera 1 at {4,6}, thief moved to {1,6} — not in LOS from {4,6}
       state = %{base_state() | thief_position: {1, 6}}
-      {:ok, :no_sighting, _} = Rules.use_eye_on_camera(state, "d1", 1)
+      {:ok, :no_sighting, new_state} = Rules.use_eye_on_camera(state, "d1", 1)
+      assert new_state.detective_result == {:look_camera, {:no_sighting, 1}}
     end
 
     test "reports sighting without revealing thief when active camera has LOS" do
@@ -93,6 +132,44 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       state = %{base_state() | power_active: false}
       {:ok, :power_off, new_state} = Rules.use_eye_on_camera(state, "d1", 1)
       assert new_state.power_revealed
+    end
+
+    test "keeps detective movement available after looking through a camera before moving" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          dice: {4, :eye},
+          thief_position: {1, 6}
+      }
+
+      {:ok, :no_sighting, new_state} = Rules.use_eye_on_camera(state, "d1", 1)
+
+      refute :look in new_state.turn_actions_remaining
+      assert :move in new_state.turn_actions_remaining
+      assert new_state.movement_spent == 0
+      assert {:error, :movement_required} = Rules.end_turn(new_state)
+      assert {:ok, moved_state} = Rules.move_detective(new_state, "d1", {3, 8})
+      assert moved_state.detective_positions["d1"] == {3, 8}
+    end
+
+    test "spends remaining detective movement after looking through a camera after moving" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          dice: {4, :eye},
+          thief_position: {1, 6}
+      }
+
+      {:ok, moved_state} = Rules.move_detective(state, "d1", {3, 8})
+      {:ok, :no_sighting, new_state} = Rules.use_eye_on_camera(moved_state, "d1", 1)
+
+      refute :look in new_state.turn_actions_remaining
+      refute :move in new_state.turn_actions_remaining
+      assert {:error, :invalid_move} = Rules.move_detective(new_state, "d1", {4, 9})
+      assert {:ok, advanced_state} = Rules.end_turn(new_state)
+      assert advanced_state.current_turn == "t"
     end
   end
 

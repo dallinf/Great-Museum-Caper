@@ -43,6 +43,60 @@ defmodule MuseumCaper.Game.RulesMovementTest do
     %{State.new_game(@players) | setup_step: :paintings}
   end
 
+  def full_round_state(thief_id, round_number) do
+    rotation = ["alice", "bob", "cora"]
+    players = full_round_players(thief_id)
+
+    detective_ids = Enum.reject(rotation, &(&1 == thief_id))
+
+    State.new_game(players, [thief_id | detective_ids], nil,
+      game_mode: :full,
+      thief_rotation: rotation,
+      round_number: round_number,
+      artwork_scores: %{"alice" => 0, "bob" => 0, "cora" => 0}
+    )
+    |> Map.merge(%{
+      phase: :playing,
+      thief_position: {3, 6},
+      detective_positions:
+        detective_ids
+        |> Enum.zip([{3, 9}, {9, 5}])
+        |> Map.new(),
+      turn_actions_remaining: []
+    })
+  end
+
+  def two_player_full_round_state(thief_id, round_number) do
+    rotation = ["alice", "bob"]
+    players = full_round_players(thief_id, rotation)
+
+    State.new_game(players, [thief_id | Enum.reject(rotation, &(&1 == thief_id))], nil,
+      game_mode: :full,
+      thief_rotation: rotation,
+      round_number: round_number,
+      artwork_scores: %{"alice" => 0, "bob" => 0}
+    )
+    |> Map.merge(%{
+      phase: :playing,
+      thief_position: {3, 6},
+      turn_actions_remaining: []
+    })
+  end
+
+  def full_round_players(thief_id) do
+    full_round_players(thief_id, ["alice", "bob", "cora"])
+  end
+
+  def full_round_players(thief_id, rotation) do
+    rotation
+    |> Enum.map(fn player_id ->
+      role = if player_id == thief_id, do: :thief, else: :detective
+      color = if role == :thief, do: :grey, else: :red
+      {player_id, %{name: String.capitalize(player_id), role: role, color: color}}
+    end)
+    |> Map.new()
+  end
+
   describe "enter_museum/2" do
     test "starts the thief's first turn at the chosen entrance" do
       state = %{State.new_game(@players) | phase: :thief_entry}
@@ -480,10 +534,25 @@ defmodule MuseumCaper.Game.RulesMovementTest do
   end
 
   describe "try_escape/2" do
-    test "lets thief escape through an unlocked window" do
+    test "limited game escape with fewer than three stolen paintings awards detectives" do
       state = %{
         base_state()
         | thief_position: {1, 5},
+          stolen_count: 2,
+          locks: Map.put(base_state().locks, :window_1_5, :open)
+      }
+
+      assert {:ok, :escaped_without_enough_art, state} = Rules.try_escape(state, :window_1_5)
+      assert state.phase == :game_over
+      assert state.winner == :detectives
+      assert state.game_over_reason == :escaped_without_enough_art
+    end
+
+    test "limited game escape with three stolen paintings awards the thief" do
+      state = %{
+        base_state()
+        | thief_position: {1, 5},
+          stolen_count: 3,
           locks: Map.put(base_state().locks, :window_1_5, :open)
       }
 
@@ -497,6 +566,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       state = %{
         base_state()
         | thief_position: {10, 6},
+          stolen_count: 3,
           locks: Map.put(base_state().locks, :exit_s1, :open)
       }
 
@@ -506,10 +576,12 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.game_over_reason == :escaped
     end
 
-    test "locked window does not start chase or end the game" do
+    test "locked window does not start chase or end the game and spends movement" do
       state = %{
         base_state()
-        | thief_position: {1, 5},
+        | current_turn: "t",
+          turn_order: ["t", "d1", "t", "d2"],
+          thief_position: {1, 5},
           locks: Map.put(base_state().locks, :window_1_5, :locked)
       }
 
@@ -517,11 +589,125 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       refute state.chase_mode
       assert state.phase == :playing
       assert state.detective_result == {:escape_locked, :window_1_5}
+      refute :move in state.turn_actions_remaining
+      assert {:error, :invalid_move} = Rules.move_thief(state, {1, 6})
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.current_turn == "d1"
+    end
+
+    test "locked window after moving onto it spends remaining movement" do
+      state = %{
+        base_state()
+        | thief_position: {1, 5},
+          movement_path: [{1, 4}, {1, 5}],
+          movement_spent: 1,
+          locks: Map.put(base_state().locks, :window_1_5, :locked)
+      }
+
+      assert {:ok, :locked, state} = Rules.try_escape(state, :window_1_5)
+
+      refute :move in state.turn_actions_remaining
+      assert {:error, :invalid_move} = Rules.move_thief(state, {1, 6})
     end
 
     test "rejects escape attempts when thief is not at that door or window" do
       state = %{base_state() | thief_position: {3, 6}}
       assert {:error, :not_adjacent} = Rules.try_escape(state, :window_1_5)
+    end
+
+    test "full game escape records the thief score and rotates to the next thief" do
+      state =
+        full_round_state("alice", 1)
+        |> Map.merge(%{
+          thief_position: {1, 5},
+          stolen_count: 2,
+          locks: Map.put(base_state().locks, :window_1_5, :open)
+        })
+
+      assert {:ok, :escaped, state} = Rules.try_escape(state, :window_1_5)
+      assert state.phase == :setup
+      assert state.setup_step == :locks
+      assert state.thief_player_id == "bob"
+      assert state.players["bob"].role == :thief
+      assert state.players["alice"].role == :detective
+      assert state.round_number == 2
+      assert state.artwork_scores["alice"] == 2
+      assert state.stolen_count == 0
+      assert state.paintings == %{}
+      assert state.detective_positions == %{"alice" => nil, "cora" => nil}
+    end
+
+    test "two-player full game escape rotates to the next thief with two controlled pawns" do
+      state =
+        two_player_full_round_state("alice", 1)
+        |> Map.merge(%{
+          thief_position: {1, 5},
+          stolen_count: 2,
+          locks: Map.put(base_state().locks, :window_1_5, :open)
+        })
+
+      assert {:ok, :escaped, state} = Rules.try_escape(state, :window_1_5)
+      assert state.phase == :setup
+      assert state.thief_player_id == "bob"
+      assert state.players["bob"].role == :thief
+      assert state.players["alice"].role == :detective
+      assert state.artwork_scores["alice"] == 2
+
+      assert state.detective_positions == %{
+               "alice:detective-1" => nil,
+               "alice:detective-2" => nil
+             }
+
+      assert state.detective_controllers == %{
+               "alice:detective-1" => "alice",
+               "alice:detective-2" => "alice"
+             }
+
+      assert state.turn_order == [
+               "alice:detective-1",
+               "bob",
+               "alice:detective-2",
+               "bob"
+             ]
+    end
+
+    test "full game reports the winner after every player has been the thief" do
+      state =
+        full_round_state("cora", 3)
+        |> Map.merge(%{
+          thief_position: {1, 5},
+          stolen_count: 3,
+          artwork_scores: %{"alice" => 2, "bob" => 1, "cora" => 0},
+          locks: Map.put(base_state().locks, :window_1_5, :open)
+        })
+
+      assert {:ok, :escaped, state} = Rules.try_escape(state, :window_1_5)
+      assert state.phase == :game_over
+      assert state.game_over_reason == :all_thieves_played
+      assert state.artwork_scores == %{"alice" => 2, "bob" => 1, "cora" => 3}
+      assert state.winning_player_ids == ["cora"]
+
+      assert [%{thief_player_id: "cora", stolen_count: 3, outcome: :thief}] =
+               state.round_results
+    end
+
+    test "two-player full game detects capture by a controlled detective pawn" do
+      state = %{
+        two_player_full_round_state("bob", 2)
+        | current_turn: "alice:detective-1",
+          thief_position: {3, 8},
+          detective_positions: %{
+            "alice:detective-1" => {3, 8},
+            "alice:detective-2" => {9, 5}
+          },
+          dice: {1, :eye},
+          turn_actions_remaining: []
+      }
+
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.phase == :game_over
+      assert state.game_over_reason == :all_thieves_played
+      assert [%{thief_player_id: "bob", outcome: :detectives}] = state.round_results
     end
   end
 
@@ -568,7 +754,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert {3, 8} in destinations
     end
 
-    test "cannot land on or move through active painting cells" do
+    test "can move through active painting cells without landing on them" do
       state = %{
         base_state()
         | dice: {5, :eye},
@@ -579,7 +765,21 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       destinations = Rules.valid_detective_destinations(state, "d1")
 
       refute {3, 8} in destinations
-      refute {3, 7} in destinations
+      assert {3, 7} in destinations
+    end
+
+    test "can cross artwork spaces inside the white room" do
+      state = %{
+        base_state()
+        | dice: {6, :eye},
+          detective_positions: %{"d1" => {6, 6}, "d2" => {9, 5}},
+          paintings: %{{4, 5} => :present}
+      }
+
+      destinations = Rules.valid_detective_destinations(state, "d1")
+
+      refute {4, 5} in destinations
+      assert {4, 6} in destinations
     end
 
     test "can use a painting space after the thief removes it" do
@@ -639,6 +839,25 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert {3, 8} in destinations
       assert {3, 7} in destinations
     end
+
+    test "cannot land on or move through external door cells" do
+      for {inside_cell, door_cell} <- [
+            {{10, 6}, {11, 6}},
+            {{10, 7}, {11, 7}},
+            {{5, 11}, {5, 12}},
+            {{6, 2}, {6, 1}}
+          ] do
+        state = %{
+          base_state()
+          | dice: {1, :eye},
+            detective_positions: %{"d1" => inside_cell, "d2" => {9, 5}}
+        }
+
+        destinations = Rules.valid_detective_destinations(state, "d1")
+
+        refute door_cell in destinations
+      end
+    end
   end
 
   describe "move_detective/3" do
@@ -647,6 +866,17 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       {:ok, new_state} = Rules.move_detective(state, "d1", {3, 8})
       assert new_state.detective_positions["d1"] == {3, 8}
       assert :move in new_state.turn_actions_remaining
+    end
+
+    test "rejects moves onto external door cells" do
+      state = %{
+        base_state()
+        | dice: {1, :eye},
+          turn_actions_remaining: [:move, :look],
+          detective_positions: %{"d1" => {10, 6}, "d2" => {9, 5}}
+      }
+
+      assert {:error, :invalid_move} = Rules.move_detective(state, "d1", {11, 6})
     end
 
     test "detective can keep moving with remaining die movement" do
@@ -729,6 +959,31 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.game_over_reason == :caught
     end
 
+    test "full game capture records zero score and rotates after end turn" do
+      state =
+        full_round_state("alice", 1)
+        |> Map.merge(%{
+          current_turn: "bob",
+          turn_order: ["bob", "alice", "cora", "alice"],
+          dice: {3, :eye},
+          thief_position: {3, 8},
+          stolen_count: 1,
+          turn_actions_remaining: [:move, :look]
+        })
+
+      assert {:ok, state} = Rules.move_detective(state, "bob", {3, 8})
+      assert state.phase == :playing
+
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.phase == :setup
+      assert state.thief_player_id == "bob"
+      assert state.round_number == 2
+      assert state.artwork_scores["alice"] == 0
+
+      assert [%{thief_player_id: "alice", stolen_count: 0, outcome: :detectives}] =
+               state.round_results
+    end
+
     test "landing on a known thief on a targeted painting waits for end turn before capture" do
       state = %{
         base_state()
@@ -738,6 +993,30 @@ defmodule MuseumCaper.Game.RulesMovementTest do
           thief_position: {3, 8},
           detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
           paintings: %{{3, 8} => :targeted},
+          chase_mode: true,
+          turn_actions_remaining: [:move, :look]
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert state.phase == :playing
+      assert state.winner == nil
+      assert state.game_over_reason == nil
+
+      assert {:ok, state} = Rules.end_turn(state)
+      assert state.phase == :game_over
+      assert state.winner == :detectives
+      assert state.game_over_reason == :caught
+    end
+
+    test "landing on a known thief on stolen artwork waits for end turn before capture" do
+      state = %{
+        base_state()
+        | dice: {1, :eye},
+          current_turn: "d1",
+          turn_order: ["d1", "t", "d2", "t"],
+          thief_position: {3, 8},
+          detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}},
+          paintings: %{{3, 8} => :removed},
           chase_mode: true,
           turn_actions_remaining: [:move, :look]
       }

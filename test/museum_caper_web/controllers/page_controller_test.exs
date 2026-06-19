@@ -3,7 +3,10 @@ defmodule MuseumCaperWeb.PageControllerTest do
 
   test "GET / renders lobby", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Museum Caper"
+    html = html_response(conn, 200)
+
+    assert html =~ "The Great Museum Caper"
+    refute html =~ "Phoenix Framework"
   end
 
   test "GET / renders the fixed app theme", %{conn: conn} do
