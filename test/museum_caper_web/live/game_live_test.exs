@@ -205,6 +205,38 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(alice_view, "#start-full-game-button[disabled]")
   end
 
+  test "single host can start with bots from the waiting room", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    {:ok, pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: %{})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(alice_view, "#start-bot-game-button:not([disabled])", "Start with Bots")
+
+    render_click(element(alice_view, "#start-bot-game-button"))
+
+    state = GameServer.get_state(pid)
+    assert map_size(state.players) == 2
+    assert state.players["bot-1"].bot? == true
+    assert has_element?(alice_view, "#player-row-bot-1 [data-player-bot-badge]", "Bot")
+    refute Map.has_key?(state.players, "bot-2")
+    refute has_element?(alice_view, "#player-row-bot-2")
+  end
+
+  test "bot start is hidden once a second human joins", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    {:ok, _pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: %{})
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+    {:ok, _bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
+
+    refute has_element?(alice_view, "#start-bot-game-button")
+  end
+
   test "two joined players can start into setup", %{conn: conn, game_id: game_id} do
     {:ok, _pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: %{})
 
@@ -747,6 +779,30 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert state.detective_positions["player-bob:detective-1"] == {2, 4}
     assert state.detective_positions["player-bob:detective-2"] == {7, 2}
     assert state.phase == :thief_entry
+  end
+
+  test "human detective places both detective pawns during bot game setup", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_bot_game_as_human_detective!(game_id)
+    advance_to_pawns(pid)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    render_click(element(alice_view, "#cell-2-4"))
+
+    state = GameServer.get_state(pid)
+    assert state.detective_positions["player-alice:detective-1"] == {2, 4}
+    assert state.detective_positions["player-alice:detective-2"] == nil
+    assert state.phase == :setup
+
+    render_click(element(alice_view, "#cell-7-2"))
+
+    state = GameServer.get_state(pid)
+    assert state.detective_positions["player-alice:detective-1"] == {2, 4}
+    assert state.detective_positions["player-alice:detective-2"] == {7, 2}
+    assert state.phase in [:thief_entry, :playing]
   end
 
   test "shared object cells layer pawns above artwork and camera marks", %{
@@ -2341,6 +2397,37 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert state.detective_positions["player-alice"] == {3, 9}
   end
 
+  test "reveal thief testing flag shows thief to detective without changing legal clicks", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    set_detective_targeted_art_capture!(pid, false)
+
+    {:ok, hidden_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    refute has_element?(
+             hidden_view,
+             "#cell-3-8 [data-board-mark='thief'][data-mark-status='gray']"
+           )
+
+    {:ok, reveal_view, _html} =
+      live(conn, "/game/#{game_id}?player_name=Alice&reveal_thief=true")
+
+    assert has_element?(
+             reveal_view,
+             "#cell-3-8 [data-board-mark='thief'][data-mark-status='gray']"
+           )
+
+    refute has_element?(reveal_view, "#cell-3-8.cursor-pointer")
+
+    render_click(element(reveal_view, "#cell-3-8"))
+
+    state = GameServer.get_state(pid)
+    assert state.phase == :playing
+    assert state.detective_positions["player-alice"] == {3, 9}
+  end
+
   test "spotting thief on targeted painting removes artwork immediately", %{
     conn: conn,
     game_id: game_id
@@ -2429,6 +2516,24 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
   defp start_two_player_limited_game!(game_id) do
     start_two_player_game!(game_id, :limited)
+  end
+
+  defp start_bot_game_as_human_detective!(game_id) do
+    pid =
+      start_supervised!(%{
+        id: {:game_server, game_id},
+        start: {GameServer, :start_link, [[game_id: game_id, players: %{}]]}
+      })
+
+    assert :ok = GameServer.add_player(pid, "player-alice", "Alice", :purple)
+
+    assert {:ok, _state} =
+             GameServer.start_game(pid, "player-alice",
+               with_bots?: true,
+               shuffle: fn _order -> ["bot-1", "player-alice"] end
+             )
+
+    pid
   end
 
   defp start_two_player_game!(game_id, game_mode) do

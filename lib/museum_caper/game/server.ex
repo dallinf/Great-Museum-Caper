@@ -1,7 +1,9 @@
 defmodule MuseumCaper.Game.Server do
   use GenServer
-  alias MuseumCaper.Game.{PawnColors, Rules, State}
+  alias MuseumCaper.Game.{Bot, PawnColors, Rules, State}
   alias Phoenix.PubSub
+
+  @bot_step_limit 100
 
   # --- Public API ---
 
@@ -63,7 +65,7 @@ defmodule MuseumCaper.Game.Server do
   @impl true
   def init({game_id, players}) do
     state = if map_size(players) > 0, do: State.new_game(players), else: %State{phase: :lobby}
-    {:ok, %{game_id: game_id, game_state: state}}
+    {:ok, %{game_id: game_id, game_state: state, bot_run_scheduled?: false}}
   end
 
   @impl true
@@ -90,6 +92,7 @@ defmodule MuseumCaper.Game.Server do
       {:ok, new_game_state} ->
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
+        server_state = schedule_bots(server_state)
         {:reply, {:ok, new_game_state}, server_state}
 
       error ->
@@ -158,11 +161,13 @@ defmodule MuseumCaper.Game.Server do
       {:ok, disabled_ids, result, new_game_state} ->
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
+        server_state = schedule_bots(server_state)
         {:reply, {:ok, disabled_ids, result}, server_state}
 
       {:ok, :power_off, new_game_state} ->
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
+        server_state = schedule_bots(server_state)
         {:reply, {:ok, :power_off}, server_state}
     end
   end
@@ -183,6 +188,7 @@ defmodule MuseumCaper.Game.Server do
       {:ok, result, new_game_state} ->
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
+        server_state = schedule_bots(server_state)
         {:reply, {:ok, result}, server_state}
 
       error ->
@@ -196,11 +202,22 @@ defmodule MuseumCaper.Game.Server do
       {:ok, new_game_state} ->
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
+        server_state = schedule_bots(server_state)
         {:reply, {:ok, new_game_state}, server_state}
 
       error ->
         {:reply, error, server_state}
     end
+  end
+
+  @impl true
+  def handle_info(:run_bots, server_state) do
+    server_state =
+      server_state
+      |> Map.put(:bot_run_scheduled?, false)
+      |> run_bots(@bot_step_limit)
+
+    {:noreply, server_state}
   end
 
   # --- Helpers ---
@@ -210,6 +227,7 @@ defmodule MuseumCaper.Game.Server do
       {:ok, new_game_state} ->
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
+        server_state = schedule_bots(server_state)
         {:reply, {:ok, new_game_state}, server_state}
 
       error ->
@@ -222,6 +240,7 @@ defmodule MuseumCaper.Game.Server do
       {:ok, result, new_game_state} ->
         server_state = %{server_state | game_state: new_game_state}
         broadcast(server_state)
+        server_state = schedule_bots(server_state)
         {:reply, {:ok, result}, server_state}
 
       error ->
@@ -233,6 +252,90 @@ defmodule MuseumCaper.Game.Server do
     MuseumCaper.Lobby.Server.sync_game(game_id, game_state)
     PubSub.broadcast(MuseumCaper.PubSub, "game:#{game_id}", {:state_changed, game_state})
   end
+
+  defp schedule_bots(%{bot_run_scheduled?: true} = server_state), do: server_state
+
+  defp schedule_bots(server_state) do
+    Process.send_after(self(), :run_bots, 0)
+    %{server_state | bot_run_scheduled?: true}
+  end
+
+  defp run_bots(server_state, 0), do: server_state
+
+  defp run_bots(%{game_state: %{phase: :game_over}} = server_state, _steps_remaining) do
+    server_state
+  end
+
+  defp run_bots(server_state, steps_remaining) do
+    case Bot.next_action(server_state.game_state) do
+      nil ->
+        server_state
+
+      action ->
+        case apply_bot_action(server_state.game_state, action) do
+          {:ok, new_game_state} ->
+            server_state = %{server_state | game_state: new_game_state}
+            broadcast(server_state)
+            run_bots(server_state, steps_remaining - 1)
+
+          _error ->
+            server_state
+        end
+    end
+  end
+
+  defp apply_bot_action(state, {:toggle_lock, entry_id}), do: Rules.toggle_lock(state, entry_id)
+
+  defp apply_bot_action(state, {:place_painting, pos}), do: Rules.place_painting(state, pos)
+
+  defp apply_bot_action(state, {:place_camera, camera_id, pos}) do
+    Rules.place_camera(state, camera_id, pos)
+  end
+
+  defp apply_bot_action(state, {:place_detective_pawn, detective_id, pos}) do
+    Rules.place_detective_pawn(state, detective_id, pos)
+  end
+
+  defp apply_bot_action(state, {:enter_museum, entry_id}), do: Rules.enter_museum(state, entry_id)
+
+  defp apply_bot_action(state, {:move_thief, destination}) do
+    Rules.move_thief(state, destination)
+  end
+
+  defp apply_bot_action(state, {:move_detective, detective_id, destination}) do
+    Rules.move_detective(state, detective_id, destination)
+  end
+
+  defp apply_bot_action(state, {:use_eye_action, detective_id}) do
+    case Rules.use_eye_action(state, detective_id) do
+      {:ok, _result, new_state} -> {:ok, new_state}
+      error -> error
+    end
+  end
+
+  defp apply_bot_action(state, :use_camera_scan) do
+    case Rules.use_camera_scan(state) do
+      {:ok, _disabled_ids, _result, new_state} -> {:ok, new_state}
+      {:ok, :power_off, new_state} -> {:ok, new_state}
+      error -> error
+    end
+  end
+
+  defp apply_bot_action(state, :use_motion_detector) do
+    case Rules.use_motion_detector(state) do
+      {:ok, _result, new_state} -> {:ok, new_state}
+      error -> error
+    end
+  end
+
+  defp apply_bot_action(state, {:decide_motion_detector, player_id, decision}) do
+    case Rules.decide_motion_detector(state, player_id, decision) do
+      {:ok, _result, new_state} -> {:ok, new_state}
+      error -> error
+    end
+  end
+
+  defp apply_bot_action(state, :end_turn), do: Rules.end_turn(state)
 
   defp add_lobby_player(%State{phase: :lobby} = game_state, player_id, name, color) do
     already_joined? = Map.has_key?(game_state.players, player_id)
@@ -252,7 +355,8 @@ defmodule MuseumCaper.Game.Server do
           player = %{
             name: name,
             role: :unassigned,
-            color: color
+            color: color,
+            bot?: false
           }
 
           {:ok,
@@ -277,8 +381,16 @@ defmodule MuseumCaper.Game.Server do
     end
   end
 
-  defp start_lobby_game(
-         %State{phase: :lobby, turn_order: turn_order} = game_state,
+  defp start_lobby_game(%State{phase: :lobby} = game_state, player_id, opts) do
+    with {:ok, game_state} <- maybe_add_bot_players(game_state, player_id, opts) do
+      start_lobby_game_after_bot_setup(game_state, player_id, opts)
+    end
+  end
+
+  defp start_lobby_game(_game_state, _player_id, _opts), do: {:error, :invalid_phase}
+
+  defp start_lobby_game_after_bot_setup(
+         %State{turn_order: turn_order} = game_state,
          player_id,
          opts
        ) do
@@ -314,11 +426,62 @@ defmodule MuseumCaper.Game.Server do
     end
   end
 
-  defp start_lobby_game(_game_state, _player_id, _opts), do: {:error, :invalid_phase}
-
   defp normalize_game_mode(:full), do: :full
   defp normalize_game_mode("full"), do: :full
   defp normalize_game_mode(_mode), do: :limited
+
+  defp maybe_add_bot_players(game_state, player_id, opts) do
+    if Keyword.get(opts, :with_bots?, false) do
+      add_bot_players(game_state, player_id)
+    else
+      {:ok, game_state}
+    end
+  end
+
+  defp add_bot_players(%State{turn_order: [host_id | _]}, player_id)
+       when player_id != host_id do
+    {:error, :not_host}
+  end
+
+  defp add_bot_players(%State{} = game_state, _player_id) do
+    human_count =
+      Enum.count(game_state.players, fn {_id, player} ->
+        not Map.get(player, :bot?, false)
+      end)
+
+    if human_count == 1 do
+      {:ok, put_bot_players(game_state)}
+    else
+      {:error, :bots_require_one_human}
+    end
+  end
+
+  defp put_bot_players(game_state) do
+    put_bot_player(game_state, 1)
+  end
+
+  defp put_bot_player(game_state, bot_number) do
+    bot_id = "bot-#{bot_number}"
+
+    if Map.has_key?(game_state.players, bot_id) do
+      game_state
+    else
+      color = PawnColors.next_available(game_state.players)
+
+      player = %{
+        name: "Bot #{bot_number}",
+        role: :unassigned,
+        color: color,
+        bot?: true
+      }
+
+      %{
+        game_state
+        | players: Map.put(game_state.players, bot_id, player),
+          turn_order: game_state.turn_order ++ [bot_id]
+      }
+    end
+  end
 
   defp resolve_player_color(game_state, player_id, requested_color) do
     with {:ok, color} <- PawnColors.normalize(requested_color) do

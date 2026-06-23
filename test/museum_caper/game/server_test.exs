@@ -124,6 +124,89 @@ defmodule MuseumCaper.Game.ServerTest do
     assert {:error, :not_enough_players} = Server.start_game(pid, "alice")
   end
 
+  test "one human thief starts bot mode against one bot detective controller" do
+    game_id = "bot-start-#{System.unique_integer()}"
+    pid = start_game_server!(game_id, %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+
+    assert {:ok, state} =
+             Server.start_game(pid, "alice",
+               with_bots?: true,
+               shuffle: fn order -> order end
+             )
+
+    assert state.phase == :setup
+    assert map_size(state.players) == 2
+    assert state.thief_player_id == "alice"
+    assert state.players["alice"].bot? == false
+    assert state.players["alice"].role == :thief
+    assert state.players["bot-1"].bot? == true
+    assert state.players["bot-1"].role == :detective
+    assert state.players["bot-1"].name == "Bot 1"
+    refute Map.has_key?(state.players, "bot-2")
+
+    assert MapSet.new(Map.keys(state.detective_positions)) ==
+             MapSet.new(["bot-1:detective-1", "bot-1:detective-2"])
+
+    assert state.detective_controllers == %{
+             "bot-1:detective-1" => "bot-1",
+             "bot-1:detective-2" => "bot-1"
+           }
+
+    assert state.turn_order == [
+             "bot-1:detective-1",
+             "alice",
+             "bot-1:detective-2",
+             "alice"
+           ]
+  end
+
+  test "one human detective starts bot mode controlling both detective pawns" do
+    game_id = "bot-start-human-detective-#{System.unique_integer()}"
+    pid = start_game_server!(game_id, %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+
+    assert {:ok, state} =
+             Server.start_game(pid, "alice",
+               with_bots?: true,
+               shuffle: fn _order -> ["bot-1", "alice"] end
+             )
+
+    assert state.thief_player_id == "bot-1"
+    assert state.players["bot-1"].role == :thief
+    assert state.players["alice"].role == :detective
+
+    assert MapSet.new(Map.keys(state.detective_positions)) ==
+             MapSet.new(["alice:detective-1", "alice:detective-2"])
+
+    assert state.detective_controllers == %{
+             "alice:detective-1" => "alice",
+             "alice:detective-2" => "alice"
+           }
+
+    assert state.turn_order == [
+             "alice:detective-1",
+             "bot-1",
+             "alice:detective-2",
+             "bot-1"
+           ]
+  end
+
+  test "bot start requires exactly one human player" do
+    game_id = "bot-start-invalid-#{System.unique_integer()}"
+    pid = start_game_server!(game_id, %{})
+
+    assert :ok = Server.add_player(pid, "alice", "Alice", :purple)
+    assert :ok = Server.add_player(pid, "bob", "Bob", :green)
+
+    assert {:error, :bots_require_one_human} =
+             Server.start_game(pid, "alice", with_bots?: true)
+
+    assert Server.get_state(pid).phase == :lobby
+  end
+
   test "only host can start the game" do
     game_id = "host-#{System.unique_integer()}"
     pid = start_game_server!(game_id, %{})

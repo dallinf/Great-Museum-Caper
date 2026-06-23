@@ -25,6 +25,7 @@ defmodule MuseumCaperWeb.GameLive do
             player_id: player_id,
             player_name: player_name,
             player_color: player_color,
+            reveal_thief?: reveal_thief?(params),
             notification: nil,
             notification_id: nil,
             artwork_reveal_toast: nil,
@@ -50,7 +51,13 @@ defmodule MuseumCaperWeb.GameLive do
   end
 
   @impl true
-  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+  def handle_params(params, _uri, socket) do
+    {:noreply, assign(socket, :reveal_thief?, reveal_thief?(params))}
+  end
+
+  defp reveal_thief?(params) do
+    Map.get(params, "reveal_thief") in ["true", "1", "yes", "on"]
+  end
 
   @impl true
   def handle_info({:state_changed, game_state}, socket) do
@@ -110,13 +117,20 @@ defmodule MuseumCaperWeb.GameLive do
   @impl true
   def handle_event("start_game", params, socket) do
     game_mode = start_game_mode(params)
+    with_bots? = start_with_bots?(params)
 
-    case Server.start_game(socket.assigns.server, socket.assigns.player_id, game_mode: game_mode) do
+    case Server.start_game(socket.assigns.server, socket.assigns.player_id,
+           game_mode: game_mode,
+           with_bots?: with_bots?
+         ) do
       {:ok, _state} ->
-        {:noreply, refresh_state(socket, start_game_message(game_mode))}
+        {:noreply, refresh_state(socket, start_game_message(game_mode, with_bots?))}
 
       {:error, :not_enough_players} ->
         {:noreply, put_notice(socket, "Invite at least two players before starting.")}
+
+      {:error, :bots_require_one_human} ->
+        {:noreply, put_notice(socket, "Start with bots from a room with exactly one player.")}
 
       {:error, :invalid_phase} ->
         {:noreply, put_notice(socket, "This game has already started.")}
@@ -402,6 +416,14 @@ defmodule MuseumCaperWeb.GameLive do
                         </span>
                       </span>
                       <span class="flex shrink-0 items-center gap-0.5 lg:gap-1">
+                        <%= if bot_player?(player) do %>
+                          <span
+                            data-player-bot-badge
+                            class="rounded bg-sky-300/20 px-1 py-0.5 text-[0.58rem] font-black uppercase leading-none text-sky-100 lg:px-2 lg:py-1 lg:text-[0.68rem]"
+                          >
+                            Bot
+                          </span>
+                        <% end %>
                         <%= if current_turn? do %>
                           <span
                             data-turn-badge="compact"
@@ -493,6 +515,17 @@ defmodule MuseumCaperWeb.GameLive do
                       >
                         <.icon name="hero-trophy-solid" class="size-4" /> Start Full Game
                       </button>
+                      <%= if start_bot_game_enabled?(@game_state) do %>
+                        <button
+                          id="start-bot-game-button"
+                          type="button"
+                          phx-click="start_game"
+                          phx-value-bots="true"
+                          class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-sky-300/70 bg-sky-300/10 px-3 py-2 text-sm font-black text-sky-100 transition hover:border-sky-200 hover:bg-sky-300/20"
+                        >
+                          <.icon name="hero-user-group-solid" class="size-4" /> Start with Bots
+                        </button>
+                      <% end %>
                     </div>
                   <% else %>
                     <p
@@ -568,7 +601,7 @@ defmodule MuseumCaperWeb.GameLive do
                       <span data-board-mark="lock" class={lock_mark_class()}>{mark}</span>
                     <% end %>
                     <.board_mark_stack
-                      marks={cell_marks(@game_state, @player_id, pos)}
+                      marks={cell_marks(@game_state, @player_id, pos, @reveal_thief?)}
                       revealed_mark_keys={@revealed_mark_keys}
                       animated_mark_keys={@animated_mark_keys}
                     />
@@ -602,7 +635,7 @@ defmodule MuseumCaperWeb.GameLive do
                         <span data-board-mark="lock" class={lock_mark_class()}>{mark}</span>
                       <% end %>
                       <.board_mark_stack
-                        marks={cell_marks(@game_state, @player_id, pos)}
+                        marks={cell_marks(@game_state, @player_id, pos, @reveal_thief?)}
                         revealed_mark_keys={@revealed_mark_keys}
                         animated_mark_keys={@animated_mark_keys}
                       />
@@ -1348,7 +1381,12 @@ defmodule MuseumCaperWeb.GameLive do
       revealed_mark_keys:
         revealed_mark_keys(previous_state, game_state, socket.assigns.player_id),
       animated_mark_keys:
-        animated_mark_keys(previous_state, game_state, socket.assigns.player_id),
+        animated_mark_keys(
+          previous_state,
+          game_state,
+          socket.assigns.player_id,
+          socket.assigns.reveal_thief?
+        ),
       artwork_reveal_toast:
         artwork_reveal_toast(previous_state, game_state, socket.assigns.player_id)
     )
@@ -1410,13 +1448,15 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
-  defp animated_mark_keys(nil, _game_state, _player_id), do: %{}
+  defp animated_mark_keys(nil, _game_state, _player_id, _reveal_thief?), do: %{}
 
-  defp animated_mark_keys(previous_state, game_state, player_id) do
+  defp animated_mark_keys(previous_state, game_state, player_id, reveal_thief?) do
     if pawn_movement_animation_enabled?(previous_state, game_state, player_id) do
       previous_state
       |> detective_movement_animation_keys(game_state)
-      |> Map.merge(thief_movement_animation_keys(previous_state, game_state, player_id))
+      |> Map.merge(
+        thief_movement_animation_keys(previous_state, game_state, player_id, reveal_thief?)
+      )
     else
       %{}
     end
@@ -1426,7 +1466,12 @@ defmodule MuseumCaperWeb.GameLive do
     if previous_state == game_state do
       socket.assigns.animated_mark_keys
     else
-      animated_mark_keys(previous_state, game_state, socket.assigns.player_id)
+      animated_mark_keys(
+        previous_state,
+        game_state,
+        socket.assigns.player_id,
+        socket.assigns.reveal_thief?
+      )
     end
   end
 
@@ -1451,8 +1496,9 @@ defmodule MuseumCaperWeb.GameLive do
     end)
   end
 
-  defp thief_movement_animation_keys(previous_state, game_state, player_id) do
-    if thief_visible_to?(previous_state, player_id) and thief_visible_to?(game_state, player_id) and
+  defp thief_movement_animation_keys(previous_state, game_state, player_id, reveal_thief?) do
+    if thief_visible_to?(previous_state, player_id, reveal_thief?) and
+         thief_visible_to?(game_state, player_id, reveal_thief?) and
          moved_position?(previous_state.thief_position, game_state.thief_position) do
       %{
         pawn_animation_identity(:thief) =>
@@ -1472,8 +1518,9 @@ defmodule MuseumCaperWeb.GameLive do
   defp moved_position?(pos, pos), do: false
   defp moved_position?(_previous_pos, _new_pos), do: true
 
-  defp thief_visible_to?(state, player_id) do
-    player_role(state, player_id) == :thief or state.chase_mode or state.phase == :game_over
+  defp thief_visible_to?(state, player_id, reveal_thief?) do
+    reveal_thief? or player_role(state, player_id) == :thief or state.chase_mode or
+      state.phase == :game_over
   end
 
   defp pawn_animation_identity({:detective, detective_id}), do: "detective:#{detective_id}"
@@ -1619,6 +1666,12 @@ defmodule MuseumCaperWeb.GameLive do
   defp start_game_mode(%{"mode" => "full"}), do: :full
   defp start_game_mode(_params), do: :limited
 
+  defp start_with_bots?(%{"bots" => "true"}), do: true
+  defp start_with_bots?(_params), do: false
+
+  defp start_game_message(_game_mode, true), do: "Game started with bots."
+  defp start_game_message(game_mode, false), do: start_game_message(game_mode)
+
   defp start_game_message(:full), do: "Full game started. Round 1 setup begins."
   defp start_game_message(:limited), do: "Game started. Detectives place the museum setup."
 
@@ -1728,6 +1781,14 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp start_game_enabled?(state), do: map_size(state.players) >= 2
 
+  defp start_bot_game_enabled?(state), do: human_player_count(state) == 1
+
+  defp human_player_count(state) do
+    Enum.count(state.players, fn {_player_id, player} ->
+      not bot_player?(player)
+    end)
+  end
+
   defp host_leaving_open_game?(%{phase: :game_over}, _player_id), do: false
 
   defp host_leaving_open_game?(state, player_id), do: state.host_player_id == player_id
@@ -1738,6 +1799,9 @@ defmodule MuseumCaperWeb.GameLive do
       player -> player.role
     end
   end
+
+  defp bot_player?(nil), do: false
+  defp bot_player?(player), do: Map.get(player, :bot?, false)
 
   defp player_role_label(:thief), do: "Thief"
   defp player_role_label(:detective), do: "Detective"
@@ -2230,11 +2294,11 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
-  defp cell_marks(state, player_id, pos) do
+  defp cell_marks(state, player_id, pos, reveal_thief?) do
     painting_marks(state, player_id, pos) ++
       camera_marks(state, player_id, pos) ++
       detective_marks(state, pos) ++
-      thief_marks(state, player_id, pos)
+      thief_marks(state, player_id, pos, reveal_thief?)
   end
 
   defp board_mark_stack(assigns) do
@@ -2412,9 +2476,8 @@ defmodule MuseumCaperWeb.GameLive do
     |> Enum.map(fn {id, _pos} -> {:detective, id, detective_color(state, id)} end)
   end
 
-  defp thief_marks(state, player_id, pos) do
-    if state.thief_position == pos and
-         (player_role(state, player_id) == :thief or state.chase_mode or state.phase == :game_over) do
+  defp thief_marks(state, player_id, pos, reveal_thief?) do
+    if state.thief_position == pos and thief_visible_to?(state, player_id, reveal_thief?) do
       [{:thief, :grey}]
     else
       []
