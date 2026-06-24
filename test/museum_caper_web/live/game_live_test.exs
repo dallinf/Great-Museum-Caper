@@ -2301,6 +2301,22 @@ defmodule MuseumCaperWeb.GameLiveTest do
               stolen_count: 2,
               outcome: :escaped,
               reason: :escaped,
+              replay_events: [
+                %{
+                  id: 1,
+                  round_number: 1,
+                  turn_index: 0,
+                  actor_id: "player-alice",
+                  actor_role: :thief,
+                  actor_label: "Theo",
+                  type: :enter,
+                  path: [{6, 1}, {6, 2}],
+                  from: {6, 1},
+                  to: {6, 2},
+                  result: nil,
+                  label: "Theo entered through D2."
+                }
+              ],
               thief_history: %{
                 entry: %{id: :exit_w1, label: "D2", position: {6, 2}},
                 exit: nil,
@@ -2313,6 +2329,22 @@ defmodule MuseumCaperWeb.GameLiveTest do
               stolen_count: 1,
               outcome: :escaped,
               reason: :escaped,
+              replay_events: [
+                %{
+                  id: 2,
+                  round_number: 2,
+                  turn_index: 0,
+                  actor_id: "player-bob",
+                  actor_role: :thief,
+                  actor_label: "Theo",
+                  type: :escape,
+                  path: [{5, 11}, {5, 10}, {5, 9}],
+                  from: {5, 11},
+                  to: {5, 9},
+                  result: :escaped,
+                  label: "Theo escaped through W2."
+                }
+              ],
               thief_history: %{
                 entry: %{id: :exit_e1, label: "D1", position: {5, 11}},
                 exit: nil,
@@ -2328,6 +2360,11 @@ defmodule MuseumCaperWeb.GameLiveTest do
     {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
 
     assert has_element?(alice_view, "#select-route-round-2[aria-pressed='true']")
+
+    assert has_element?(
+             alice_view,
+             "#replay-playback[data-replay-events*='Theo escaped through W2.']"
+           )
 
     assert has_element?(
              alice_view,
@@ -2352,6 +2389,16 @@ defmodule MuseumCaperWeb.GameLiveTest do
     render_click(element(alice_view, "#select-route-round-1"))
 
     assert has_element?(alice_view, "#select-route-round-1[aria-pressed='true']")
+
+    assert has_element?(
+             alice_view,
+             "#replay-playback[data-replay-events*='Theo entered through D2.']"
+           )
+
+    refute has_element?(
+             alice_view,
+             "#replay-playback[data-replay-events*='Theo escaped through W2.']"
+           )
 
     assert has_element?(
              alice_view,
@@ -2427,7 +2474,11 @@ defmodule MuseumCaperWeb.GameLiveTest do
               stolen_count: 0,
               outcome: :detectives,
               reason: :caught,
-              thief_history: %{entry: nil, exit: nil, moves: []},
+              thief_history: %{
+                entry: %{id: :exit_w1, label: "D2", position: {6, 2}},
+                exit: nil,
+                moves: [%{path: [{6, 2}]}]
+              },
               replay_events: replay_events
             }
           ]
@@ -2490,6 +2541,63 @@ defmodule MuseumCaperWeb.GameLiveTest do
              thief_view,
              "#replay-playback[data-replay-events*='Theo escaped through W1.']"
            )
+  end
+
+  test "full-game game over renders a single replay surface", %{conn: conn, game_id: game_id} do
+    pid = start_two_player_full_game!(game_id)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | phase: :game_over,
+          round_number: 3,
+          winner: :detectives,
+          game_over_reason: :caught,
+          round_results: [
+            %{
+              round_number: 1,
+              thief_player_id: "player-alice",
+              stolen_count: 0,
+              outcome: :detectives,
+              reason: :caught,
+              thief_history: %{
+                entry: %{id: :exit_w1, label: "D2", position: {6, 2}},
+                exit: nil,
+                moves: [%{path: [{6, 2}]}]
+              },
+              replay_events: [
+                %{
+                  id: 1,
+                  round_number: 1,
+                  turn_index: 0,
+                  actor_id: "player-alice",
+                  actor_role: :thief,
+                  actor_label: "Alice",
+                  type: :enter,
+                  path: [{6, 1}, {6, 2}],
+                  from: {6, 1},
+                  to: {6, 2},
+                  result: nil,
+                  label: "Alice entered through D2."
+                }
+              ]
+            }
+          ]
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    replay_document =
+      alice_view
+      |> render()
+      |> LazyHTML.from_fragment()
+
+    assert replay_document |> LazyHTML.query("#replay-panel") |> Enum.count() == 1
+    assert replay_document |> LazyHTML.query("#replay-round-button") |> Enum.count() == 1
+    assert replay_document |> LazyHTML.query("#replay-playback") |> Enum.count() == 1
   end
 
   test "completed route without escape has no exit badge but shows turn stops", %{

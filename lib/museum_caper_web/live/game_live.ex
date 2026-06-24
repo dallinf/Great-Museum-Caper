@@ -207,20 +207,24 @@ defmodule MuseumCaperWeb.GameLive do
 
   @impl true
   def handle_event("select_route_round", %{"round" => round}, socket) do
+    game_state = socket.assigns.game_state
+
     selected_revealed_round =
       case Integer.parse(round) do
         {round_number, ""} ->
-          selectable_revealed_round(socket.assigns.game_state, round_number)
+          selectable_revealed_round(game_state, round_number)
 
         _ ->
           socket.assigns.selected_revealed_round
       end
 
+    replay_payload = selected_replay_payload(game_state, selected_revealed_round)
+
     {:noreply,
      assign(socket,
        selected_revealed_round: selected_revealed_round,
-       revealed_route_marks:
-         revealed_route_marks(socket.assigns.game_state, selected_revealed_round)
+       revealed_route_marks: revealed_route_marks(game_state, selected_revealed_round),
+       replay_payload: replay_payload
      )}
   end
 
@@ -1157,6 +1161,7 @@ defmodule MuseumCaperWeb.GameLive do
         selected_revealed_round={@selected_revealed_round}
       />
       <.replay_panel
+        :if={@game_state.phase == :round_review}
         game_state={@game_state}
         selected_revealed_round={@selected_revealed_round}
         replay_payload={@replay_payload}
@@ -1482,16 +1487,7 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
-  defp replay_events_for_round(game_state, _selected_round) do
-    game_state.round_results
-    |> Enum.reverse()
-    |> Enum.find_value([], fn result ->
-      case result do
-        %{replay_events: events} when is_list(events) and events != [] -> events
-        _result -> false
-      end
-    end)
-  end
+  defp replay_events_for_round(_game_state, _selected_round), do: []
 
   defp replay_control_class do
     "inline-flex min-h-8 items-center justify-center rounded-md border border-sky-200/40 bg-stone-950 px-2 text-xs font-black text-sky-100 transition hover:border-sky-100 hover:text-white"
