@@ -110,3 +110,35 @@ Completed Task 5 for the full-game replay feature. This pass focused on replay p
 ## Concerns
 
 - `mix credo` is unavailable in the current repo/tooling state, so lint verification is limited to formatting plus the existing `mix precommit` suite.
+
+---
+
+## Fix Worker Addendum (2026-06-24)
+
+### Review Findings Addressed
+
+1. Tightened the replay playback LiveView test so it asserts the exact control `aria-label` values:
+   - `Step back`
+   - `Play replay`
+   - `Step forward`
+   - `Exit replay`
+   - plus the replay speed selector options
+2. Restored revealed-route round selection semantics so `selected_revealed_round` only tracks rounds with real `thief_history` data. Replay-only rounds no longer become the selected revealed route and no longer blank the route markers or selector state.
+
+### Implementation Notes
+
+- Kept the replay panel and replay control polish intact.
+- Split the helper responsibilities in `GameLive`:
+  - revealed-route selection now uses history-present-only availability
+  - replay payload selection falls back to the latest round that actually has replay events
+- Added a focused regression test proving that a newer replay-only round does not displace the latest revealed route round in full-game game-over UI.
+
+### Verification
+
+- `mix test test/museum_caper_web/live/game_live_test.exs` — passed
+- `node --test assets/js/replay_playback_test.mjs assets/js/board_movement_animation_test.mjs assets/js/game_audio_preference_test.mjs assets/js/route_arrow_contrast_test.mjs` — passed
+- `mix format` — passed
+
+### Remaining Concern
+
+- `mix credo` still depends on whether the task is available in this repo; capture the exact output from the verification run in the final handoff.

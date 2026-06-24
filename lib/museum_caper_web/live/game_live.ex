@@ -1410,18 +1410,18 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp route_selectable_results(game_state) do
     Enum.filter(game_state.round_results, fn result ->
-      thief_history_present?(Map.get(result, :thief_history))
+      revealed_route_round_available?(result)
     end)
   end
 
   defp thief_history_present?(%{entry: entry, moves: moves}), do: entry != nil or moves != []
   defp thief_history_present?(_history), do: false
 
-  defp replay_round_available?(result) when is_map(result) do
-    thief_history_present?(Map.get(result, :thief_history)) or replay_events_present?(result)
+  defp revealed_route_round_available?(result) when is_map(result) do
+    thief_history_present?(Map.get(result, :thief_history))
   end
 
-  defp replay_round_available?(_result), do: false
+  defp revealed_route_round_available?(_result), do: false
 
   defp replay_events_present?(%{replay_events: events}) when is_list(events), do: events != []
   defp replay_events_present?(_result), do: false
@@ -1452,7 +1452,7 @@ defmodule MuseumCaperWeb.GameLive do
   defp selectable_revealed_round?(game_state, round_number) when is_integer(round_number) do
     Enum.any?(game_state.round_results, fn result ->
       result.round_number == round_number and
-        replay_round_available?(result)
+        revealed_route_round_available?(result)
     end)
   end
 
@@ -1460,7 +1460,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp latest_revealed_round_number(game_state) do
     game_state.round_results
-    |> Enum.filter(&replay_round_available?/1)
+    |> Enum.filter(&revealed_route_round_available?/1)
     |> List.last()
     |> case do
       nil -> nil
@@ -1490,7 +1490,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp selected_replay_payload(%{phase: :round_review} = game_state, selected_round) do
     game_state
-    |> replay_events_for_round(selected_round)
+    |> replay_events_for_round(replay_round_number(game_state, selected_round))
     |> Replay.payload_events(game_state)
   end
 
@@ -1499,7 +1499,7 @@ defmodule MuseumCaperWeb.GameLive do
          selected_round
        ) do
     game_state
-    |> replay_events_for_round(selected_round)
+    |> replay_events_for_round(replay_round_number(game_state, selected_round))
     |> Replay.payload_events(game_state)
   end
 
@@ -1511,6 +1511,33 @@ defmodule MuseumCaperWeb.GameLive do
   end
 
   defp selected_replay_payload(_game_state, _selected_round), do: []
+
+  defp replay_round_number(game_state, selected_round) when is_integer(selected_round) do
+    if replay_events_for_round_available?(game_state, selected_round) do
+      selected_round
+    else
+      latest_replay_round_number(game_state)
+    end
+  end
+
+  defp replay_round_number(game_state, _selected_round),
+    do: latest_replay_round_number(game_state)
+
+  defp replay_events_for_round_available?(game_state, round_number) do
+    game_state.round_results
+    |> Enum.find(&(&1.round_number == round_number))
+    |> replay_events_present?()
+  end
+
+  defp latest_replay_round_number(game_state) do
+    game_state.round_results
+    |> Enum.filter(&replay_events_present?/1)
+    |> List.last()
+    |> case do
+      nil -> nil
+      result -> result.round_number
+    end
+  end
 
   defp replay_events_for_round(game_state, selected_round) when is_integer(selected_round) do
     game_state.round_results
