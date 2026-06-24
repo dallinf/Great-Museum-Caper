@@ -750,7 +750,15 @@ defmodule MuseumCaper.Game.RulesMovementTest do
 
       assert {:ok, :locked, state} = Rules.try_escape(state, :window_1_5)
 
-      assert [%{type: :lock_check, actor_id: "t", result: :locked, to: {1, 5}}] =
+      assert [
+               %{
+                 type: :lock_check,
+                 actor_id: "t",
+                 result: :locked,
+                 to: {1, 5},
+                 label: "Thief checked the W1 lock. It was locked."
+               }
+             ] =
                state.replay_events
 
       refute Enum.any?(state.replay_events, &(&1.type == :escape))
@@ -818,6 +826,12 @@ defmodule MuseumCaper.Game.RulesMovementTest do
 
       assert [%{replay_events: events}] = state.round_results
       assert Enum.any?(events, &(&1.type == :lock_check and &1.result == :open))
+
+      assert Enum.any?(
+               events,
+               &(&1.type == :lock_check and &1.label == "Alice checked the W1 lock. It was open.")
+             )
+
       assert Enum.any?(events, &(&1.type == :escape and &1.to == {1, 5}))
       assert Enum.any?(events, &(&1.type == :round_end and &1.result == :escaped))
     end

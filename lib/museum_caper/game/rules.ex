@@ -465,7 +465,9 @@ defmodule MuseumCaper.Game.Rules do
             from: state.thief_position,
             to: state.thief_position,
             result: lock_result,
-            label: "#{player_name(state, state.thief_player_id)} checked the #{entry.label} lock."
+            label:
+              "#{player_name(state, state.thief_player_id)} checked the #{entry.label} lock. " <>
+                lock_result_label(lock_result)
           })
 
         case lock_result do
@@ -510,6 +512,10 @@ defmodule MuseumCaper.Game.Rules do
       {:ok, :escaped, finish_round(state, :thief, :escaped)}
     end
   end
+
+  defp lock_result_label(:locked), do: "It was locked."
+  defp lock_result_label(:open), do: "It was open."
+  defp lock_result_label(_result), do: "It was open."
 
   defp limited_escape_without_enough_art?(%{game_mode: :limited, stolen_count: stolen_count}) do
     stolen_count < @limited_escape_stolen_count

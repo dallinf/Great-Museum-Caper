@@ -1273,7 +1273,12 @@ defmodule MuseumCaperWeb.GameLive do
             data-replay-command="play"
             class={replay_control_class()}
           >
-            <.icon name="hero-play" class="size-4" />
+            <span data-replay-play-icon>
+              <.icon name="hero-play" class="size-4" />
+            </span>
+            <span data-replay-pause-icon class="hidden">
+              <.icon name="hero-pause" class="size-4" />
+            </span>
           </button>
           <button
             type="button"
@@ -1490,7 +1495,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp selected_replay_payload(%{phase: :round_review} = game_state, selected_round) do
     game_state
-    |> replay_events_for_round(replay_round_number(game_state, selected_round))
+    |> replay_events_for_selected_round(selected_round)
     |> Replay.payload_events(game_state)
   end
 
@@ -1499,7 +1504,7 @@ defmodule MuseumCaperWeb.GameLive do
          selected_round
        ) do
     game_state
-    |> replay_events_for_round(replay_round_number(game_state, selected_round))
+    |> replay_events_for_selected_round(selected_round)
     |> Replay.payload_events(game_state)
   end
 
@@ -1512,22 +1517,12 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp selected_replay_payload(_game_state, _selected_round), do: []
 
-  defp replay_round_number(game_state, selected_round) when is_integer(selected_round) do
-    if replay_events_for_round_available?(game_state, selected_round) do
-      selected_round
-    else
-      latest_replay_round_number(game_state)
-    end
-  end
+  defp replay_events_for_selected_round(game_state, selected_round)
+       when is_integer(selected_round),
+       do: replay_events_for_round(game_state, selected_round)
 
-  defp replay_round_number(game_state, _selected_round),
-    do: latest_replay_round_number(game_state)
-
-  defp replay_events_for_round_available?(game_state, round_number) do
-    game_state.round_results
-    |> Enum.find(&(&1.round_number == round_number))
-    |> replay_events_present?()
-  end
+  defp replay_events_for_selected_round(game_state, _selected_round),
+    do: replay_events_for_round(game_state, latest_replay_round_number(game_state))
 
   defp latest_replay_round_number(game_state) do
     game_state.round_results

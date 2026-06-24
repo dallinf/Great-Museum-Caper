@@ -86,6 +86,8 @@ const ReplayPlaybackHook = {
   bindControls() {
     this.caption = this.el.querySelector("[data-replay-caption]");
     this.playButton = this.root.querySelector?.("[data-replay-command='play']");
+    this.playIcon = this.playButton?.querySelector?.("[data-replay-play-icon]");
+    this.pauseIcon = this.playButton?.querySelector?.("[data-replay-pause-icon]");
     this.speedInput = this.el.querySelector("[data-replay-speed]");
 
     if (this.speedInput) {
@@ -261,6 +263,8 @@ const ReplayPlaybackHook = {
     const label = this.state.playing ? "Pause replay" : "Play replay";
     this.playButton.setAttribute("aria-label", label);
     this.playButton.setAttribute("aria-pressed", this.state.playing ? "true" : "false");
+    this.playIcon?.classList.toggle("hidden", this.state.playing);
+    this.pauseIcon?.classList.toggle("hidden", !this.state.playing);
   },
   layer() {
     if (!this.replayLayer) {

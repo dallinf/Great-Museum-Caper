@@ -2761,6 +2761,71 @@ defmodule MuseumCaperWeb.GameLiveTest do
            )
   end
 
+  test "selected route round with no replay events hides replay instead of falling back", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | phase: :game_over,
+          round_number: 3,
+          winner: :detectives,
+          game_over_reason: :caught,
+          round_results: [
+            %{
+              round_number: 1,
+              thief_player_id: "player-alice",
+              stolen_count: 0,
+              outcome: :detectives,
+              reason: :caught,
+              thief_history: %{
+                entry: %{id: :exit_w1, label: "D2", position: {6, 2}},
+                exit: nil,
+                moves: [%{path: [{6, 2}, {6, 3}]}]
+              },
+              replay_events: []
+            },
+            %{
+              round_number: 2,
+              thief_player_id: "player-alice",
+              stolen_count: 1,
+              outcome: :detectives,
+              reason: :caught,
+              thief_history: %{entry: nil, exit: nil, moves: []},
+              replay_events: [
+                %{
+                  id: 2,
+                  round_number: 2,
+                  turn_index: 0,
+                  actor_id: "player-alice",
+                  actor_role: :thief,
+                  actor_label: "Alice",
+                  type: :move,
+                  path: [{6, 3}, {6, 4}],
+                  from: {6, 3},
+                  to: {6, 4},
+                  result: nil,
+                  label: "Alice moved east."
+                }
+              ]
+            }
+          ]
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(alice_view, "#select-route-round-1[aria-pressed='true']")
+    refute has_element?(alice_view, "#replay-panel")
+    refute has_element?(alice_view, "#replay-playback")
+    refute has_element?(alice_view, "#replay-playback[data-replay-events*='Alice moved east.']")
+  end
+
   test "completed route without escape has no exit badge but shows turn stops", %{
     conn: conn,
     game_id: game_id

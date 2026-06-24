@@ -155,6 +155,89 @@ const buildHookFixture = replayEventsJSON => {
   const listeners = {};
   const caption = {textContent: ""};
   const speedInput = {value: "1"};
+  const playIcon = {
+    classList: {
+      values: new Set(),
+      add(...tokens) {
+        tokens.forEach(token => this.values.add(token));
+      },
+      remove(...tokens) {
+        tokens.forEach(token => this.values.delete(token));
+      },
+      toggle(token, force) {
+        if (force === undefined) {
+          if (this.values.has(token)) {
+            this.values.delete(token);
+          } else {
+            this.values.add(token);
+          }
+
+          return this.values.has(token);
+        }
+
+        if (force) {
+          this.values.add(token);
+        } else {
+          this.values.delete(token);
+        }
+
+        return force;
+      },
+      contains(token) {
+        return this.values.has(token);
+      },
+    },
+  };
+  const pauseIcon = {
+    classList: {
+      values: new Set(["hidden"]),
+      add(...tokens) {
+        tokens.forEach(token => this.values.add(token));
+      },
+      remove(...tokens) {
+        tokens.forEach(token => this.values.delete(token));
+      },
+      toggle(token, force) {
+        if (force === undefined) {
+          if (this.values.has(token)) {
+            this.values.delete(token);
+          } else {
+            this.values.add(token);
+          }
+
+          return this.values.has(token);
+        }
+
+        if (force) {
+          this.values.add(token);
+        } else {
+          this.values.delete(token);
+        }
+
+        return force;
+      },
+      contains(token) {
+        return this.values.has(token);
+      },
+    },
+  };
+  const playButton = {
+    attributes: {},
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+    querySelector(selector) {
+      if (selector === "[data-replay-play-icon]") {
+        return playIcon;
+      }
+
+      if (selector === "[data-replay-pause-icon]") {
+        return pauseIcon;
+      }
+
+      return null;
+    },
+  };
   const root = {
     addEventListener(type, handler) {
       listeners[type] = handler;
@@ -166,6 +249,9 @@ const buildHookFixture = replayEventsJSON => {
     },
     contains(element) {
       return Boolean(element?.isReplayControl);
+    },
+    querySelector(selector) {
+      return selector === "[data-replay-command='play']" ? playButton : null;
     },
   };
   const el = {
@@ -195,7 +281,7 @@ const buildHookFixture = replayEventsJSON => {
     },
   };
 
-  return {caption, hook, listeners, root, speedInput};
+  return {caption, hook, listeners, pauseIcon, playButton, playIcon, root, speedInput};
 };
 
 test("ReplayPlaybackHook binds replay commands from the surrounding replay panel", () => {
@@ -236,4 +322,22 @@ test("ReplayPlaybackHook reloads replay events on LiveView update and keeps spee
     playing: false,
     speed: 2,
   });
+});
+
+test("ReplayPlaybackHook updates the visible play icon state when playback toggles", () => {
+  const {hook, pauseIcon, playButton, playIcon} = buildHookFixture(JSON.stringify(events));
+
+  hook.mounted();
+  assert.equal(playButton.attributes["aria-label"], "Play replay");
+  assert.equal(playButton.attributes["aria-pressed"], "false");
+  assert.equal(playIcon.classList.contains("hidden"), false);
+  assert.equal(pauseIcon.classList.contains("hidden"), true);
+
+  hook.state = {...hook.state, playing: true};
+  hook.updateControlState();
+
+  assert.equal(playButton.attributes["aria-label"], "Pause replay");
+  assert.equal(playButton.attributes["aria-pressed"], "true");
+  assert.equal(playIcon.classList.contains("hidden"), true);
+  assert.equal(pauseIcon.classList.contains("hidden"), false);
 });

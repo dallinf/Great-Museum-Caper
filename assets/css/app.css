@@ -256,8 +256,23 @@
   background: #34d399;
 }
 
+.replay-pawn-purple {
+  background: #c084fc;
+}
+
+.replay-pawn-white {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
 .replay-pawn-yellow {
   background: #facc15;
+}
+
+.replay-pawn-grey,
+.replay-pawn-gray {
+  background: #94a3b8;
+  color: #0f172a;
 }
 
 @keyframes board-reveal-pop {
