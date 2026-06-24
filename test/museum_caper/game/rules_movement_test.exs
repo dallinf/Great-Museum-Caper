@@ -400,6 +400,34 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert new_state.detective_positions["d1"] == {1, 4}
     end
 
+    test "placing detective pawns records replay setup events" do
+      state = %{State.new_game(@players) | setup_step: :pawns}
+
+      assert {:ok, state} = Rules.place_detective_pawn(state, "d1", {1, 4})
+      assert {:ok, state} = Rules.place_detective_pawn(state, "d2", {7, 1})
+
+      assert [
+               %{
+                 type: :setup,
+                 actor_id: "d1",
+                 actor_role: :detective,
+                 path: [{1, 4}],
+                 from: {1, 4},
+                 to: {1, 4},
+                 label: "Det1 started at 1-4."
+               },
+               %{
+                 type: :setup,
+                 actor_id: "d2",
+                 actor_role: :detective,
+                 path: [{7, 1}],
+                 from: {7, 1},
+                 to: {7, 1},
+                 label: "Det2 started at 7-1."
+               }
+             ] = state.replay_events
+    end
+
     test "rejects pawn on painting cell" do
       state = %{State.new_game(@players) | setup_step: :pawns, paintings: %{{1, 4} => :present}}
       assert {:error, :cell_occupied} = Rules.place_detective_pawn(state, "d1", {1, 4})
@@ -792,6 +820,26 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert Enum.any?(events, &(&1.type == :lock_check and &1.result == :open))
       assert Enum.any?(events, &(&1.type == :escape and &1.to == {1, 5}))
       assert Enum.any?(events, &(&1.type == :round_end and &1.result == :escaped))
+    end
+
+    test "successful door escape records a path to the visible exterior door cell" do
+      state =
+        full_round_state("alice", 1)
+        |> Map.merge(%{
+          current_turn: "alice",
+          thief_position: {10, 6},
+          stolen_count: 2,
+          locks: Map.put(base_state().locks, :exit_s1, :open)
+        })
+
+      assert {:ok, :escaped, state} = Rules.try_escape(state, :exit_s1)
+
+      assert [%{replay_events: events}] = state.round_results
+
+      assert Enum.any?(events, fn event ->
+               event.type == :escape and event.from == {10, 6} and event.to == {11, 6} and
+                 event.path == [{10, 6}, {11, 6}]
+             end)
     end
 
     test "starting the next round after review rotates to the next thief setup" do

@@ -117,7 +117,20 @@ defmodule MuseumCaper.Game.Rules do
     with true <- Board.detective_placeable_cell?(pos),
          :ok <- validate_unoccupied(state, pos, [:paintings, :cameras, :detective_positions]) do
       det_positions = Map.put(state.detective_positions, detective_id, pos)
-      state = %{state | detective_positions: det_positions}
+
+      state =
+        %{state | detective_positions: det_positions}
+        |> Replay.append_event(%{
+          type: :setup,
+          actor_id: detective_id,
+          actor_role: :detective,
+          path: [pos],
+          from: pos,
+          to: pos,
+          result: nil,
+          label: "#{player_name(state, detective_id)} started at #{position_label(pos)}."
+        })
+
       all_placed = Enum.all?(det_positions, fn {_, v} -> v != nil end)
       state = if all_placed, do: %{state | phase: :thief_entry}, else: state
       {:ok, state}
@@ -483,7 +496,7 @@ defmodule MuseumCaper.Game.Rules do
         type: :escape,
         actor_id: state.thief_player_id,
         actor_role: :thief,
-        path: [state.thief_position],
+        path: exit_path(state.thief_position, Board.exit_door_cell(entry)),
         from: state.thief_position,
         to: Board.exit_door_cell(entry),
         result: :escaped,
@@ -805,6 +818,11 @@ defmodule MuseumCaper.Game.Rules do
 
   defp entry_path(%{type: :door} = entry, pos), do: [Board.exit_door_cell(entry), pos]
   defp entry_path(_entry, pos), do: [pos]
+
+  defp exit_path(from, to) when from == to, do: [to]
+  defp exit_path(from, to), do: [from, to]
+
+  defp position_label({row, col}), do: "#{row}-#{col}"
 
   defp put_round_end_replay_event(state, outcome, reason) do
     Replay.append_event(state, %{

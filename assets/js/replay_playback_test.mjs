@@ -6,7 +6,9 @@ import {
   initialReplayState,
   nextReplayIndex,
   previousReplayIndex,
+  replayEventPath,
   replayEventDuration,
+  replayFrameActors,
   replaceReplayState,
 } from "./replay_playback.js";
 
@@ -56,6 +58,97 @@ test("replaceReplayState resets playback while preserving selected speed", () =>
     playing: false,
     speed: 2,
   });
+});
+
+test("replayEventPath falls back to from and to when the serialized path is incomplete", () => {
+  assert.deepEqual(
+    replayEventPath({
+      type: "escape",
+      path: "10-6",
+      from: "10-6",
+      to: "11-6",
+    }),
+    [
+      {row: 10, col: 6},
+      {row: 11, col: 6},
+    ]
+  );
+
+  assert.deepEqual(
+    replayEventPath({
+      type: "escape",
+      path: "1-5",
+      from: "1-5",
+      to: "1-5",
+    }),
+    [{row: 1, col: 5}]
+  );
+});
+
+test("replayFrameActors preserves every actor position through the event timeline", () => {
+  const actorEvents = [
+    {
+      type: "setup",
+      actor_id: "d1",
+      actor_role: "detective",
+      actor_color: "red",
+      path: "3-9",
+      from: "3-9",
+      to: "3-9",
+    },
+    {
+      type: "setup",
+      actor_id: "d2",
+      actor_role: "detective",
+      actor_color: "blue",
+      path: "9-5",
+      from: "9-5",
+      to: "9-5",
+    },
+    {
+      type: "enter",
+      actor_id: "t",
+      actor_role: "thief",
+      actor_color: "grey",
+      path: "6-1 6-2",
+      from: "6-1",
+      to: "6-2",
+    },
+    {
+      type: "move",
+      actor_id: "d1",
+      actor_role: "detective",
+      actor_color: "red",
+      path: "3-9 3-8",
+      from: "3-9",
+      to: "3-8",
+    },
+  ];
+
+  assert.deepEqual(replayFrameActors(actorEvents, 2), {
+    d1: {
+      actor_id: "d1",
+      actor_role: "detective",
+      actor_color: "red",
+      position: {row: 3, col: 9},
+    },
+    d2: {
+      actor_id: "d2",
+      actor_role: "detective",
+      actor_color: "blue",
+      position: {row: 9, col: 5},
+    },
+    t: {
+      actor_id: "t",
+      actor_role: "thief",
+      actor_color: "grey",
+      position: {row: 6, col: 2},
+    },
+  });
+
+  assert.deepEqual(replayFrameActors(actorEvents, 3).d1.position, {row: 3, col: 8});
+  assert.deepEqual(replayFrameActors(actorEvents, 3).d2.position, {row: 9, col: 5});
+  assert.deepEqual(replayFrameActors(actorEvents, 3).t.position, {row: 6, col: 2});
 });
 
 const buildHookFixture = replayEventsJSON => {

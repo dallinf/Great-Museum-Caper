@@ -34,6 +34,7 @@ defmodule MuseumCaper.Game.ReplayTest do
                actor_id: "t",
                actor_role: :thief,
                actor_label: "Theo",
+               actor_color: "grey",
                type: :enter,
                path: [{6, 1}, {6, 2}],
                from: {6, 1},
@@ -96,5 +97,33 @@ defmodule MuseumCaper.Game.ReplayTest do
                label: "Alice moved 1 space."
              }
            ] = Replay.payload_events(state.replay_events, state)
+  end
+
+  test "payload_events uses stored actor colors from historical replay events" do
+    state =
+      @players
+      |> State.new_game(["t", "d"], "t", game_mode: :full)
+      |> Map.put(:players, %{
+        "t" => %{name: "Theo", role: :detective, color: :yellow},
+        "d" => %{name: "Alice", role: :thief, color: :grey}
+      })
+
+    historical_event = %{
+      id: 1,
+      round_number: 1,
+      turn_index: 0,
+      actor_id: "t",
+      actor_role: :thief,
+      actor_label: "Theo",
+      actor_color: "grey",
+      type: :enter,
+      path: [{6, 1}, {6, 2}],
+      from: {6, 1},
+      to: {6, 2},
+      result: nil,
+      label: "Theo entered through D2."
+    }
+
+    assert [%{actor_color: "grey"}] = Replay.payload_events([historical_event], state)
   end
 end

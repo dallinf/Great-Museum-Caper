@@ -2,10 +2,12 @@ import {
   initialReplayState,
   nextReplayIndex,
   previousReplayIndex,
+  replayEventPath,
   replayEventDuration,
+  replayFrameActors,
   replaceReplayState,
 } from "../replay_playback.js";
-import {parseMovePath, pathCellId} from "../board_movement_animation.js";
+import {pathCellId} from "../board_movement_animation.js";
 
 const pawnClass = event =>
   `replay-pawn replay-pawn-${event.actor_role} replay-pawn-${event.actor_color || "grey"}`;
@@ -42,6 +44,9 @@ const ReplayPlaybackHook = {
     };
     this.root.addEventListener("click", this.handleControlClick);
     this.root.addEventListener("change", this.handleChange);
+    this.reducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     this.bindControls();
     this.renderFrame();
   },
@@ -80,11 +85,14 @@ const ReplayPlaybackHook = {
   },
   bindControls() {
     this.caption = this.el.querySelector("[data-replay-caption]");
+    this.playButton = this.root.querySelector?.("[data-replay-command='play']");
     this.speedInput = this.el.querySelector("[data-replay-speed]");
 
     if (this.speedInput) {
       this.speedInput.value = `${this.state.speed}`;
     }
+
+    this.updateControlState();
   },
   command(command) {
     if (command === "play") {
@@ -108,6 +116,8 @@ const ReplayPlaybackHook = {
       if (this.caption) {
         this.caption.textContent = "";
       }
+
+      this.updateControlState();
     }
   },
   togglePlay() {
@@ -123,6 +133,7 @@ const ReplayPlaybackHook = {
 
     if (!this.state.playing || this.state.index >= this.state.events.length - 1) {
       this.state = {...this.state, playing: false};
+      this.updateControlState();
       return;
     }
 
@@ -137,12 +148,15 @@ const ReplayPlaybackHook = {
   stop() {
     clearTimeout(this.timer);
     this.timer = null;
+    this.cancelAnimations();
     this.state = {...this.state, playing: false};
+    this.updateControlState();
   },
   renderFrame() {
     const event = this.state.events[this.state.index];
 
     if (!event) {
+      this.clearLayer();
       return;
     }
 
@@ -150,32 +164,103 @@ const ReplayPlaybackHook = {
       this.caption.textContent = event.label || "";
     }
 
-    this.renderPawn(event);
+    this.renderPawns(event);
+    this.updateControlState();
   },
-  renderPawn(event) {
-    const path = parseMovePath(event.path);
-    const finalCell = path[path.length - 1];
-
-    if (!finalCell) {
-      return;
-    }
-
-    const cell = document.getElementById(pathCellId(finalCell));
-
-    if (!cell) {
-      return;
-    }
-
+  renderPawns(currentEvent) {
     const layer = this.layer();
-    const marker = document.createElement("span");
-    marker.className = pawnClass(event);
-    marker.textContent = event.actor_role === "thief" ? "T" : "D";
+    const actors = replayFrameActors(this.state.events, this.state.index);
+    const actorIds = new Set(Object.keys(actors));
 
-    const center = centerOf(cell);
+    this.cancelAnimations();
+
+    Object.values(actors).forEach(actor => {
+      const marker = this.markerForActor(layer, actor);
+      this.placeMarker(marker, actor.position);
+
+      if (actor.actor_id === currentEvent.actor_id) {
+        this.animateMarker(marker, replayEventPath(currentEvent));
+      }
+    });
+
+    layer.querySelectorAll("[data-replay-actor-id]").forEach(marker => {
+      if (!actorIds.has(marker.dataset.replayActorId)) {
+        marker.remove();
+      }
+    });
+  },
+  markerForActor(layer, actor) {
+    const escape =
+      typeof CSS !== "undefined" && CSS.escape ? CSS.escape : value => `${value}`.replaceAll('"', '\\"');
+    const selector = `[data-replay-actor-id="${escape(actor.actor_id)}"]`;
+    let marker = layer.querySelector(selector);
+
+    if (!marker) {
+      marker = document.createElement("span");
+      marker.dataset.replayActorId = actor.actor_id;
+      layer.appendChild(marker);
+    }
+
+    marker.className = pawnClass(actor);
+    marker.textContent = actor.actor_role === "thief" ? "T" : "D";
+
+    return marker;
+  },
+  placeMarker(marker, position) {
+    const center = this.centerForCell(position);
+
+    if (!center) {
+      return;
+    }
+
     marker.style.left = `${center.x}px`;
     marker.style.top = `${center.y}px`;
+  },
+  animateMarker(marker, path) {
+    if (this.reducedMotion || !this.state.playing || path.length < 2 || !marker.animate) {
+      return;
+    }
 
-    layer.replaceChildren(marker);
+    const keyframes = path
+      .map(position => this.centerForCell(position))
+      .filter(Boolean)
+      .map(center => ({
+        left: `${center.x}px`,
+        top: `${center.y}px`,
+      }));
+
+    if (keyframes.length < 2) {
+      return;
+    }
+
+    const animation = marker.animate(keyframes, {
+      duration: replayEventDuration(
+        {path: path.map(({row, col}) => `${row}-${col}`).join(" ")},
+        this.state.speed
+      ),
+      easing: "ease-in-out",
+      fill: "both",
+    });
+
+    this.animations = [...(this.animations || []), animation];
+  },
+  centerForCell(position) {
+    const cell = document.getElementById(pathCellId(position));
+
+    return cell ? centerOf(cell) : null;
+  },
+  cancelAnimations() {
+    (this.animations || []).forEach(animation => animation.cancel?.());
+    this.animations = [];
+  },
+  updateControlState() {
+    if (!this.playButton) {
+      return;
+    }
+
+    const label = this.state.playing ? "Pause replay" : "Play replay";
+    this.playButton.setAttribute("aria-label", label);
+    this.playButton.setAttribute("aria-pressed", this.state.playing ? "true" : "false");
   },
   layer() {
     if (!this.replayLayer) {
@@ -188,6 +273,7 @@ const ReplayPlaybackHook = {
     return this.replayLayer;
   },
   clearLayer() {
+    this.cancelAnimations();
     this.replayLayer?.remove();
     this.replayLayer = null;
   },

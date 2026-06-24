@@ -55,6 +55,7 @@ defmodule MuseumCaper.Game.Replay do
     |> Map.put_new(:round_number, state.round_number)
     |> Map.put_new(:turn_index, state.turn_index)
     |> Map.put_new(:actor_label, actor_label(state, Map.fetch!(attrs, :actor_id)))
+    |> Map.put_new(:actor_color, actor_color(state, Map.fetch!(attrs, :actor_id)))
     |> Map.put_new(:path, [])
     |> Map.put_new(:from, nil)
     |> Map.put_new(:to, nil)
@@ -78,7 +79,8 @@ defmodule MuseumCaper.Game.Replay do
       actor_id: event.actor_id,
       actor_role: Atom.to_string(event.actor_role),
       actor_label: event.actor_label,
-      actor_color: actor_color(state, event.actor_id),
+      actor_color:
+        PawnColors.to_param(Map.get(event, :actor_color) || actor_color(state, event.actor_id)),
       type: Atom.to_string(event.type),
       path: position_path(event.path),
       from: position_key(event.from),
