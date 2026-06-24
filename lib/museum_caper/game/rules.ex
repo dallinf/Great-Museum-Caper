@@ -389,7 +389,7 @@ defmodule MuseumCaper.Game.Rules do
     state = put_player_position(state, role, player_id, destination)
 
     if state.movement_path == [] do
-      state
+      clear_current_movement_event(state, player_id)
     else
       Replay.put_movement_event(state, role, player_id, state.movement_path)
     end
@@ -408,6 +408,16 @@ defmodule MuseumCaper.Game.Rules do
 
   defp movement_origin(%{movement_path: [origin | _path]}, _current), do: origin
   defp movement_origin(%{movement_path: []}, current), do: current
+
+  defp clear_current_movement_event(state, actor_id) do
+    case Enum.find_index(state.replay_events, fn event ->
+           event.type == :move and event.turn_index == state.turn_index and
+             event.actor_id == actor_id
+         end) do
+      nil -> state
+      index -> %{state | replay_events: List.delete_at(state.replay_events, index)}
+    end
+  end
 
   defp movement_limit(allowance, max_steps \\ nil) do
     case max_steps do

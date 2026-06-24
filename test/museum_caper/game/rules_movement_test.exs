@@ -1111,6 +1111,24 @@ defmodule MuseumCaper.Game.RulesMovementTest do
              ] = state.replay_events
     end
 
+    test "returning a detective to the turn-start origin clears the replay move event" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          dice: {4, :eye},
+          turn_actions_remaining: [:move],
+          detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}}
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert [%{type: :move, actor_id: "d1", path: [{3, 9}, {3, 8}]}] = state.replay_events
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 9})
+      assert state.detective_positions["d1"] == {3, 9}
+      assert state.movement_path == []
+      assert state.replay_events == []
+    end
+
     test "rejects moves onto external door cells" do
       state = %{
         base_state()
