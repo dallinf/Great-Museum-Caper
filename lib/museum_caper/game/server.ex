@@ -58,6 +58,9 @@ defmodule MuseumCaper.Game.Server do
   def try_escape(server, exit_id), do: GenServer.call(server, {:try_escape, exit_id})
   def end_turn(server), do: GenServer.call(server, :end_turn)
 
+  def start_next_round(server, player_id),
+    do: GenServer.call(server, {:start_next_round, player_id})
+
   # --- GenServer Callbacks ---
 
   @impl true
@@ -200,6 +203,15 @@ defmodule MuseumCaper.Game.Server do
 
       error ->
         {:reply, error, server_state}
+    end
+  end
+
+  @impl true
+  def handle_call({:start_next_round, player_id}, _from, server_state) do
+    if server_state.game_state.host_player_id == player_id do
+      handle_mutation(server_state, &Rules.start_next_round/1)
+    else
+      {:reply, {:error, :not_host}, server_state}
     end
   end
 

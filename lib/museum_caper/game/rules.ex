@@ -140,6 +140,7 @@ defmodule MuseumCaper.Game.Rules do
       state = %{
         state
         | thief_position: pos,
+          thief_history: thief_entry_history(entry, pos),
           phase: :playing,
           turn_order: turn_order,
           current_turn: next_player,
@@ -296,6 +297,32 @@ defmodule MuseumCaper.Game.Rules do
     |> elem(1)
   end
 
+  defp bfs_paths(start, max_steps, _blocked) when max_steps <= 0, do: %{start => [start]}
+
+  defp bfs_paths(start, max_steps, blocked) do
+    Enum.reduce(1..max_steps, {[start], %{start => [start]}}, fn _step, {frontier, paths} ->
+      new_steps =
+        frontier
+        |> Enum.flat_map(fn current ->
+          current
+          |> Board.neighbors()
+          |> Enum.map(fn neighbor -> {neighbor, current} end)
+        end)
+        |> Enum.reject(fn {cell, _previous} -> Map.has_key?(paths, cell) end)
+        |> Enum.reject(fn {cell, _previous} -> MapSet.member?(blocked, cell) end)
+        |> Enum.uniq_by(fn {cell, _previous} -> cell end)
+
+      new_paths =
+        Enum.reduce(new_steps, paths, fn {cell, previous}, paths ->
+          Map.put(paths, cell, Map.fetch!(paths, previous) ++ [cell])
+        end)
+
+      new_frontier = Enum.map(new_steps, fn {cell, _previous} -> cell end)
+      {new_frontier, new_paths}
+    end)
+    |> elem(1)
+  end
+
   def move_detective(state, detective_id, destination) do
     if :move in state.turn_actions_remaining do
       valid = valid_detective_destinations(state, detective_id)
@@ -328,12 +355,12 @@ defmodule MuseumCaper.Game.Rules do
       if destination == origin do
         %{state | movement_path: [], movement_spent: 0}
       else
-        distance =
+        movement_path =
           origin
-          |> bfs_distances(movement_limit(allowance), blocked)
+          |> bfs_paths(movement_limit(allowance), blocked)
           |> Map.fetch!(destination)
 
-        %{state | movement_path: [origin, destination], movement_spent: distance}
+        %{state | movement_path: movement_path, movement_spent: length(movement_path) - 1}
       end
 
     put_player_position(state, role, player_id, destination)
@@ -377,7 +404,7 @@ defmodule MuseumCaper.Game.Rules do
       if state.thief_position == adj_cell do
         case Map.get(state.locks, exit_id, :open) do
           :open ->
-            finish_escape(state)
+            finish_escape(state, entry)
 
           :locked ->
             {:ok, :locked,
@@ -393,8 +420,12 @@ defmodule MuseumCaper.Game.Rules do
     end
   end
 
-  defp finish_escape(state) do
-    state = resolve_pending_steal(state)
+  defp finish_escape(state, entry) do
+    state =
+      state
+      |> commit_thief_movement()
+      |> put_thief_exit_history(entry)
+      |> resolve_pending_steal()
 
     if limited_escape_without_enough_art?(state) do
       {:ok, :escaped_without_enough_art,
@@ -418,7 +449,10 @@ defmodule MuseumCaper.Game.Rules do
         {:error, :movement_required}
 
       true ->
-        state = resolve_power_room_turn_end(state)
+        state =
+          state
+          |> resolve_power_room_turn_end()
+          |> commit_thief_movement()
 
         if detective_caught_thief?(state) do
           {:ok, catch_thief(state)}
@@ -493,6 +527,16 @@ defmodule MuseumCaper.Game.Rules do
     }
   end
 
+  def start_next_round(
+        %State{phase: :round_review, game_mode: :full, round_results: [_ | _] = round_results} =
+          state
+      ) do
+    round_result = List.last(round_results)
+    {:ok, start_next_full_round(state, state.artwork_scores, round_results, round_result)}
+  end
+
+  def start_next_round(_state), do: {:error, :invalid_phase}
+
   # --- Helpers ---
 
   defp turn_setup(state, player_id) do
@@ -527,7 +571,8 @@ defmodule MuseumCaper.Game.Rules do
       thief_player_id: state.thief_player_id,
       stolen_count: scored_count,
       outcome: outcome,
-      reason: reason
+      reason: reason,
+      thief_history: state.thief_history
     }
 
     round_results = state.round_results ++ [round_result]
@@ -546,7 +591,20 @@ defmodule MuseumCaper.Game.Rules do
           pending_steal: nil
       }
     else
-      start_next_full_round(state, artwork_scores, round_results, round_result)
+      %{
+        state
+        | phase: :round_review,
+          artwork_scores: artwork_scores,
+          round_results: round_results,
+          current_turn: nil,
+          turn_actions_remaining: [],
+          dice: nil,
+          motion_detector_decision: nil,
+          detective_result: nil,
+          pending_steal: nil,
+          movement_path: [],
+          movement_spent: 0
+      }
     end
   end
 
@@ -628,6 +686,27 @@ defmodule MuseumCaper.Game.Rules do
     case Map.get(state.players, player_id) do
       %{name: name} -> name
       nil -> "Unknown player"
+    end
+  end
+
+  defp put_thief_exit_history(state, entry) do
+    exit = %{id: entry.id, label: entry.label, position: Board.exit_door_cell(entry)}
+    put_in(state.thief_history.exit, exit)
+  end
+
+  defp thief_entry_history(entry, pos) do
+    %{
+      entry: %{id: entry.id, label: entry.label, position: pos},
+      exit: nil,
+      moves: []
+    }
+  end
+
+  defp commit_thief_movement(state) do
+    if state.current_turn == state.thief_player_id and movement_made?(state) do
+      update_in(state.thief_history.moves, &(&1 ++ [%{path: state.movement_path}]))
+    else
+      state
     end
   end
 

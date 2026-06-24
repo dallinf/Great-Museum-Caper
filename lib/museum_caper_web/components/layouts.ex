@@ -57,6 +57,33 @@ defmodule MuseumCaperWeb.Layouts do
           <.icon name="hero-bars-3" class="size-5 md:size-6 lg:size-7" />
         </summary>
         <div class="absolute right-0 mt-2 w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-stone-700 bg-stone-950/95 p-2 shadow-2xl shadow-black/40 backdrop-blur md:w-80">
+          <button
+            id="game-audio-toggle"
+            type="button"
+            phx-hook="GameAudioPreferenceHook"
+            phx-update="ignore"
+            aria-pressed="false"
+            data-audio-storage-key="museum_caper.game_audio_enabled"
+            class="group flex w-full items-center justify-between gap-3 rounded-md border border-transparent px-3 py-2 text-left text-sm font-bold text-stone-200 transition hover:border-amber-300/40 hover:bg-stone-900 hover:text-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
+          >
+            <span class="flex min-w-0 items-center gap-2">
+              <span class="grid size-7 shrink-0 place-items-center rounded-md border border-stone-700 bg-stone-900 text-stone-300 transition group-hover:border-amber-300/50 group-hover:text-amber-100">
+                <span data-audio-disabled-icon>
+                  <.icon name="hero-speaker-x-mark" class="size-4" />
+                </span>
+                <span data-audio-enabled-icon class="hidden">
+                  <.icon name="hero-speaker-wave" class="size-4" />
+                </span>
+              </span>
+              <span class="truncate">Game audio</span>
+            </span>
+            <span
+              data-audio-state-label
+              class="rounded-full border border-stone-700 bg-stone-900 px-2 py-0.5 text-xs font-black uppercase tracking-[0.12em] text-stone-400 transition"
+            >
+              Off
+            </span>
+          </button>
           <%= if @back_to_lobby_event do %>
             <.link
               id="back-to-lobby-link"

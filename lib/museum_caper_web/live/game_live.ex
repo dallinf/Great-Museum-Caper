@@ -32,6 +32,8 @@ defmodule MuseumCaperWeb.GameLive do
             turn_banner_key: nil,
             revealed_mark_keys: [],
             animated_mark_keys: %{},
+            selected_revealed_round: nil,
+            revealed_route_marks: %{},
             join_form:
               to_form(
                 %{
@@ -44,8 +46,14 @@ defmodule MuseumCaperWeb.GameLive do
           |> maybe_join_game(player_name, player_color)
 
         game_state = Server.get_state(server)
+        selected_revealed_round = latest_revealed_round_number(game_state)
 
-        {:ok, assign(socket, game_state: game_state)}
+        {:ok,
+         assign(socket,
+           game_state: game_state,
+           selected_revealed_round: selected_revealed_round,
+           revealed_route_marks: revealed_route_marks(game_state, selected_revealed_round)
+         )}
     end
   end
 
@@ -59,12 +67,17 @@ defmodule MuseumCaperWeb.GameLive do
     revealed_mark_keys = next_revealed_mark_keys(socket, previous_state, game_state)
     animated_mark_keys = next_animated_mark_keys(socket, previous_state, game_state)
 
+    selected_revealed_round =
+      selected_revealed_round(socket.assigns.selected_revealed_round, previous_state, game_state)
+
     socket =
       socket
       |> assign(
         game_state: game_state,
         revealed_mark_keys: revealed_mark_keys,
         animated_mark_keys: animated_mark_keys,
+        selected_revealed_round: selected_revealed_round,
+        revealed_route_marks: revealed_route_marks(game_state, selected_revealed_round),
         artwork_reveal_toast: next_artwork_reveal_toast(socket, previous_state, game_state)
       )
       |> maybe_show_turn_banner(previous_turn, game_state)
@@ -184,6 +197,39 @@ defmodule MuseumCaperWeb.GameLive do
   @impl true
   def handle_event("cancel_escape", _params, socket) do
     {:noreply, assign(socket, pending_escape_entry: nil, notification: nil)}
+  end
+
+  @impl true
+  def handle_event("select_route_round", %{"round" => round}, socket) do
+    selected_revealed_round =
+      case Integer.parse(round) do
+        {round_number, ""} ->
+          selectable_revealed_round(socket.assigns.game_state, round_number)
+
+        _ ->
+          socket.assigns.selected_revealed_round
+      end
+
+    {:noreply,
+     assign(socket,
+       selected_revealed_round: selected_revealed_round,
+       revealed_route_marks:
+         revealed_route_marks(socket.assigns.game_state, selected_revealed_round)
+     )}
+  end
+
+  @impl true
+  def handle_event("start_next_round", _params, socket) do
+    case Server.start_next_round(socket.assigns.server, socket.assigns.player_id) do
+      {:ok, _state} ->
+        {:noreply, refresh_state(socket, "Next round setup started.")}
+
+      {:error, :not_host} ->
+        {:noreply, put_notice(socket, "Only the host can start the next round.")}
+
+      {:error, :invalid_phase} ->
+        {:noreply, put_notice(socket, "Round review has already ended.")}
+    end
   end
 
   @impl true
@@ -432,7 +478,10 @@ defmodule MuseumCaperWeb.GameLive do
             </section>
 
             <%= if full_game?(@game_state) do %>
-              <.full_game_scoreboard game_state={@game_state} />
+              <.full_game_scoreboard
+                game_state={@game_state}
+                selected_revealed_round={@selected_revealed_round}
+              />
             <% end %>
 
             <% power_status = known_power_status(@game_state, @player_id) %>
@@ -513,8 +562,13 @@ defmodule MuseumCaperWeb.GameLive do
                   player_id={@player_id}
                   pending_escape_entry={@pending_escape_entry}
                 />
+              <% :round_review -> %>
+                <.round_review_panel game_state={@game_state} player_id={@player_id} />
               <% :game_over -> %>
-                <.game_over_panel game_state={@game_state} />
+                <.game_over_panel
+                  game_state={@game_state}
+                  selected_revealed_round={@selected_revealed_round}
+                />
             <% end %>
           </aside>
 
@@ -567,10 +621,12 @@ defmodule MuseumCaperWeb.GameLive do
                     <%= for mark <- lock_marks(@game_state, @player_id, pos) do %>
                       <span data-board-mark="lock" class={lock_mark_class()}>{mark}</span>
                     <% end %>
+                    <.thief_route_cell_overlay route_marks={Map.get(@revealed_route_marks, pos, [])} />
                     <.board_mark_stack
                       marks={cell_marks(@game_state, @player_id, pos)}
                       revealed_mark_keys={@revealed_mark_keys}
                       animated_mark_keys={@animated_mark_keys}
+                      movement_path={@game_state.movement_path}
                     />
                   </button>
                 <% else %>
@@ -601,10 +657,12 @@ defmodule MuseumCaperWeb.GameLive do
                       <%= for mark <- lock_marks(@game_state, @player_id, pos) do %>
                         <span data-board-mark="lock" class={lock_mark_class()}>{mark}</span>
                       <% end %>
+                      <.thief_route_cell_overlay route_marks={Map.get(@revealed_route_marks, pos, [])} />
                       <.board_mark_stack
                         marks={cell_marks(@game_state, @player_id, pos)}
                         revealed_mark_keys={@revealed_mark_keys}
                         animated_mark_keys={@animated_mark_keys}
+                        movement_path={@game_state.movement_path}
                       />
                     </button>
                   <% else %>
@@ -743,6 +801,48 @@ defmodule MuseumCaperWeb.GameLive do
       <h2 class="text-sm font-black uppercase tracking-[0.18em] text-amber-100">Thief Entry</h2>
       <p class="text-sm text-stone-300">The thief chooses an exterior door or window.</p>
     </div>
+    """
+  end
+
+  attr :game_state, :map, required: true
+  attr :player_id, :string, required: true
+
+  def round_review_panel(assigns) do
+    assigns = assign(assigns, :round_result, List.last(assigns.game_state.round_results))
+
+    ~H"""
+    <section
+      id="round-review-panel"
+      class="space-y-3 rounded-lg border border-amber-300/40 bg-amber-300/10 p-3"
+    >
+      <h2 class="text-sm font-black uppercase tracking-[0.18em] text-amber-100">
+        Round {@game_state.round_number} review
+      </h2>
+      <p :if={@round_result} id="round-review-summary" class="text-sm text-stone-200">
+        {player_name(@game_state, @round_result.thief_player_id)} stole {@round_result.stolen_count} {artwork_word(
+          @round_result.stolen_count
+        )}.
+      </p>
+      <p class="text-xs font-semibold text-stone-400">
+        Review the thief route before setup begins for the next round.
+      </p>
+      <button
+        :if={review_host?(@game_state, @player_id)}
+        id="start-next-round-button"
+        type="button"
+        phx-click="start_next_round"
+        class="inline-flex w-full items-center justify-center gap-2 rounded-md bg-amber-300 px-3 py-2 text-sm font-black text-stone-950 transition hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
+      >
+        <.icon name="hero-arrow-right-circle-solid" class="size-4" /> Start next round
+      </button>
+      <p
+        :if={!review_host?(@game_state, @player_id)}
+        id="round-review-waiting"
+        class="rounded-md border border-dashed border-stone-600 px-3 py-2 text-sm text-stone-400"
+      >
+        Waiting for host to start the next round.
+      </p>
+    </section>
     """
   end
 
@@ -995,6 +1095,7 @@ defmodule MuseumCaperWeb.GameLive do
   end
 
   attr :game_state, :map, required: true
+  attr :selected_revealed_round, :integer, default: nil
 
   def full_game_scoreboard(assigns) do
     ~H"""
@@ -1039,11 +1140,19 @@ defmodule MuseumCaperWeb.GameLive do
           </li>
         <% end %>
       </ul>
+      <.route_round_selector
+        :if={
+          @game_state.phase == :round_review and thief_histories_present?(@game_state.round_results)
+        }
+        game_state={@game_state}
+        selected_revealed_round={@selected_revealed_round}
+      />
     </section>
     """
   end
 
   attr :game_state, :map, required: true
+  attr :selected_revealed_round, :integer, default: nil
 
   def game_over_panel(assigns) do
     ~H"""
@@ -1053,12 +1162,19 @@ defmodule MuseumCaperWeb.GameLive do
         <p id="full-game-winner" class="mt-2 text-sm text-stone-200">
           Winner: <strong class="text-stone-50">{winner_names(@game_state)}</strong>
         </p>
+        <.route_round_selector
+          :if={thief_histories_present?(@game_state.round_results)}
+          game_state={@game_state}
+          selected_revealed_round={@selected_revealed_round}
+        />
         <ul id="round-report" class="mt-3 space-y-1 text-sm text-stone-300">
           <%= for result <- @game_state.round_results do %>
-            <li id={"round-report-#{result.round_number}"}>
-              Round {result.round_number}: {player_name(@game_state, result.thief_player_id)} stole {result.stolen_count} {artwork_word(
-                result.stolen_count
-              )}.
+            <li id={"round-report-#{result.round_number}"} class="space-y-2">
+              <p>
+                Round {result.round_number}: {player_name(@game_state, result.thief_player_id)} stole {result.stolen_count} {artwork_word(
+                  result.stolen_count
+                )}.
+              </p>
             </li>
           <% end %>
         </ul>
@@ -1069,10 +1185,341 @@ defmodule MuseumCaperWeb.GameLive do
         <p class="text-sm text-stone-400">
           Reason: {game_over_reason_label(@game_state.game_over_reason)}
         </p>
+        <.thief_route_history history={@game_state.thief_history} />
       <% end %>
     </div>
     """
   end
+
+  attr :game_state, :map, required: true
+  attr :selected_revealed_round, :integer, default: nil
+
+  def route_round_selector(assigns) do
+    ~H"""
+    <div id="route-round-selector" class="space-y-2 border-t border-amber-300/20 pt-2">
+      <h3 class="text-[0.62rem] font-black uppercase tracking-[0.16em] text-amber-100">
+        Revealed route
+      </h3>
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(4.75rem,1fr))] gap-1">
+        <%= for result <- route_selectable_results(@game_state) do %>
+          <button
+            id={"select-route-round-#{result.round_number}"}
+            type="button"
+            phx-click="select_route_round"
+            phx-value-round={result.round_number}
+            aria-pressed={to_string(result.round_number == @selected_revealed_round)}
+            class={[
+              "rounded-md border px-2 py-1 text-xs font-black transition",
+              if(result.round_number == @selected_revealed_round,
+                do: "border-sky-200 bg-sky-300 text-stone-950",
+                else:
+                  "border-stone-700 bg-stone-950/60 text-stone-200 hover:border-sky-200 hover:text-sky-100"
+              )
+            ]}
+          >
+            Round {result.round_number}
+          </button>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  attr :route_marks, :list, default: []
+
+  def thief_route_cell_overlay(assigns) do
+    ~H"""
+    <span
+      :if={@route_marks != []}
+      data-thief-route-cell
+      class="pointer-events-none absolute inset-0 z-[18]"
+    >
+      <span
+        :for={mark <- @route_marks}
+        data-thief-route={mark.kind}
+        data-route-round={mark.round}
+        data-route-direction={Map.get(mark, :direction)}
+        data-thief-route-stop={Map.get(mark, :stop)}
+        data-thief-route-stop-dot={if(mark.kind == "stop", do: "")}
+        data-thief-route-arrow-outline={if(mark.kind == "path", do: "")}
+        data-thief-route-label={route_label_kind(mark)}
+        class={route_mark_class(mark)}
+      >
+        <span class="sr-only">Thief route {mark.kind}</span>
+        {route_mark_label_text(mark)}
+      </span>
+    </span>
+    """
+  end
+
+  attr :history, :map, required: true
+  attr :id, :string, default: "thief-route-history"
+  attr :title, :string, default: "Thief route"
+
+  def thief_route_history(assigns) do
+    ~H"""
+    <section
+      :if={thief_history_present?(@history)}
+      id={@id}
+      class="mt-3 rounded-md border border-sky-300/30 bg-sky-300/10 p-3 text-sm"
+    >
+      <h3 class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-sky-100">
+        {@title}
+      </h3>
+      <p
+        :if={@history.entry}
+        id={route_summary_dom_id(@id)}
+        class="mt-2 flex flex-wrap items-center gap-1.5 text-stone-200"
+      >
+        <span class="text-xs font-black uppercase tracking-[0.12em] text-stone-400">Entry</span>
+        <span
+          id={route_entry_dom_id(@id)}
+          class="rounded bg-stone-950/70 px-2 py-1 text-xs font-black text-sky-100"
+        >
+          {route_entry_label(@history.entry)}
+        </span>
+        <span class="text-xs font-black uppercase tracking-[0.12em] text-stone-500">to</span>
+        <span class="rounded border border-stone-700 bg-stone-950/50 px-2 py-1 text-xs font-bold text-stone-300">
+          {route_summary_final_label(@history)}
+        </span>
+      </p>
+    </section>
+    """
+  end
+
+  defp thief_histories_present?(round_results) do
+    Enum.any?(round_results, fn result ->
+      thief_history_present?(Map.get(result, :thief_history))
+    end)
+  end
+
+  defp route_selectable_results(game_state) do
+    Enum.filter(game_state.round_results, fn result ->
+      thief_history_present?(Map.get(result, :thief_history))
+    end)
+  end
+
+  defp thief_history_present?(%{entry: entry, moves: moves}), do: entry != nil or moves != []
+  defp thief_history_present?(_history), do: false
+
+  defp selected_revealed_round(_selected_round, nil, game_state) do
+    latest_revealed_round_number(game_state)
+  end
+
+  defp selected_revealed_round(selected_round, previous_state, game_state) do
+    previous_latest = latest_revealed_round_number(previous_state)
+    latest = latest_revealed_round_number(game_state)
+
+    cond do
+      latest != previous_latest -> latest
+      selectable_revealed_round?(game_state, selected_round) -> selected_round
+      true -> latest
+    end
+  end
+
+  defp selectable_revealed_round(game_state, round_number) do
+    if selectable_revealed_round?(game_state, round_number) do
+      round_number
+    else
+      latest_revealed_round_number(game_state)
+    end
+  end
+
+  defp selectable_revealed_round?(game_state, round_number) when is_integer(round_number) do
+    Enum.any?(game_state.round_results, fn result ->
+      result.round_number == round_number and
+        thief_history_present?(Map.get(result, :thief_history))
+    end)
+  end
+
+  defp selectable_revealed_round?(_game_state, _round_number), do: false
+
+  defp latest_revealed_round_number(game_state) do
+    game_state.round_results
+    |> Enum.filter(&thief_history_present?(Map.get(&1, :thief_history)))
+    |> List.last()
+    |> case do
+      nil -> nil
+      result -> result.round_number
+    end
+  end
+
+  defp revealed_route_marks(%{phase: phase} = game_state, selected_round)
+       when phase in [:round_review, :game_over] and is_integer(selected_round) do
+    game_state.round_results
+    |> Enum.find(&(&1.round_number == selected_round))
+    |> case do
+      nil -> %{}
+      result -> route_marks(Map.get(result, :thief_history), selected_round)
+    end
+  end
+
+  defp revealed_route_marks(%{phase: :game_over, thief_history: history}, nil) do
+    if thief_history_present?(history) do
+      route_marks(history, "current")
+    else
+      %{}
+    end
+  end
+
+  defp revealed_route_marks(_game_state, _selected_round), do: %{}
+
+  defp route_marks(history, round) when is_map(history) do
+    round = to_string(round)
+    positions = thief_route_positions(history)
+
+    []
+    |> add_path_marks(positions, round)
+    |> add_stop_marks(history, round)
+    |> add_entry_mark(history, round)
+    |> add_exit_mark(history, round)
+    |> Enum.group_by(& &1.position, &Map.delete(&1, :position))
+  end
+
+  defp route_marks(_history, _round), do: %{}
+
+  defp add_path_marks(marks, positions, round) do
+    positions
+    |> Enum.zip(Enum.drop(positions, 1))
+    |> Enum.reduce(marks, fn {position, next_position}, marks ->
+      direction = route_direction(position, next_position)
+
+      [
+        %{
+          kind: "path",
+          round: round,
+          position: position,
+          direction: direction,
+          label: route_direction_glyph(direction)
+        }
+        | marks
+      ]
+    end)
+  end
+
+  defp add_stop_marks(marks, %{moves: moves}, round) when is_list(moves) do
+    moves
+    |> Enum.with_index(1)
+    |> Enum.reduce(marks, fn {move, index}, marks ->
+      case move |> Map.get(:path, []) |> List.last() do
+        nil ->
+          marks
+
+        position ->
+          [
+            %{
+              kind: "stop",
+              round: round,
+              position: position,
+              stop: index,
+              label: Integer.to_string(index)
+            }
+            | marks
+          ]
+      end
+    end)
+  end
+
+  defp add_stop_marks(marks, _history, _round), do: marks
+
+  defp add_entry_mark(marks, %{entry: %{position: position} = entry}, round) do
+    [
+      %{
+        kind: "entry",
+        round: round,
+        position: route_entry_marker_position(entry, position),
+        label: "ENTRY #{route_entry_label(entry)}"
+      }
+      | marks
+    ]
+  end
+
+  defp add_entry_mark(marks, _history, _round), do: marks
+
+  defp add_exit_mark(marks, %{exit: %{label: label, position: position}}, round) do
+    [%{kind: "exit", round: round, position: position, label: "EXIT #{label}"} | marks]
+  end
+
+  defp add_exit_mark(marks, _history, _round), do: marks
+
+  defp route_entry_marker_position(%{id: id}, fallback_position) do
+    case Board.entry_by_id(id) do
+      nil -> fallback_position
+      entry -> Board.exit_door_cell(entry)
+    end
+  end
+
+  defp route_entry_marker_position(_entry, fallback_position), do: fallback_position
+
+  defp thief_route_positions(%{entry: %{position: entry_pos}} = history) do
+    history
+    |> Map.get(:moves, [])
+    |> Enum.flat_map(&Map.get(&1, :path, []))
+    |> prepend_entry_position(entry_pos)
+    |> Enum.dedup()
+  end
+
+  defp thief_route_positions(_history), do: []
+
+  defp prepend_entry_position([], entry_pos), do: [entry_pos]
+  defp prepend_entry_position([entry_pos | _rest] = positions, entry_pos), do: positions
+  defp prepend_entry_position(positions, entry_pos), do: [entry_pos | positions]
+
+  defp route_direction({row, col}, {row, next_col}) when next_col == col + 1, do: "east"
+  defp route_direction({row, col}, {row, next_col}) when next_col == col - 1, do: "west"
+  defp route_direction({row, col}, {next_row, col}) when next_row == row + 1, do: "south"
+  defp route_direction({row, col}, {next_row, col}) when next_row == row - 1, do: "north"
+  defp route_direction(_position, _next_position), do: nil
+
+  defp route_direction_glyph("east"), do: "→"
+  defp route_direction_glyph("west"), do: "←"
+  defp route_direction_glyph("north"), do: "↑"
+  defp route_direction_glyph("south"), do: "↓"
+  defp route_direction_glyph(_direction), do: ""
+
+  defp route_mark_label_text(%{label: label}), do: label
+  defp route_mark_label_text(_mark), do: ""
+
+  defp route_label_kind(%{kind: kind}) when kind in ["entry", "exit"], do: kind
+  defp route_label_kind(_mark), do: nil
+
+  defp route_mark_class(%{kind: "entry"}) do
+    "absolute left-0.5 top-0.5 rounded bg-sky-300 px-1 py-0.5 text-[0.48rem] font-black leading-none text-stone-950 shadow"
+  end
+
+  defp route_mark_class(%{kind: "exit"}) do
+    "absolute bottom-0.5 left-0.5 rounded bg-amber-300 px-1 py-0.5 text-[0.48rem] font-black leading-none text-stone-950 shadow"
+  end
+
+  defp route_mark_class(%{kind: "stop"}) do
+    "absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full border-2 border-stone-950 bg-amber-100 text-[0.68rem] font-black leading-none text-stone-950 shadow-[0_0_0.55rem_rgba(251,191,36,0.65)]"
+  end
+
+  defp route_mark_class(%{kind: "path"}) do
+    "route-path-arrow absolute inset-0 grid place-items-center text-[1.35rem] font-black leading-none"
+  end
+
+  defp route_entry_dom_id("thief-route-history"), do: "thief-route-entry"
+  defp route_entry_dom_id(id), do: "#{id}-entry"
+
+  defp route_summary_dom_id("thief-route-history"), do: "thief-route-summary"
+  defp route_summary_dom_id(id), do: "#{id}-summary"
+
+  defp route_entry_label(%{label: label}), do: label
+  defp route_entry_label(%{id: id}), do: entry_label(id)
+  defp route_entry_label(_entry), do: "Entry"
+
+  defp route_summary_final_label(history) do
+    history
+    |> thief_route_positions()
+    |> List.last()
+    |> case do
+      nil -> "Unknown"
+      pos -> position_label(pos)
+    end
+  end
+
+  defp position_label(pos), do: position_key(pos)
 
   defp maybe_join_game(socket, player_name, player_color) do
     if connected?(socket) do
@@ -1295,7 +1742,7 @@ defmodule MuseumCaperWeb.GameLive do
       case result do
         {:ok, _state} ->
           pending_escape_entry =
-            pending_window_escape_after_move(state, socket.assigns.player_id, pos)
+            pending_escape_after_move(state, socket.assigns.player_id, pos)
 
           socket = assign(socket, :pending_escape_entry, pending_escape_entry)
           {:noreply, refresh_state(socket, nil)}
@@ -1342,6 +1789,9 @@ defmodule MuseumCaperWeb.GameLive do
     game_state = Server.get_state(socket.assigns.server)
     previous_turn = assigned_banner_turn(previous_state, game_state)
 
+    selected_revealed_round =
+      selected_revealed_round(socket.assigns.selected_revealed_round, previous_state, game_state)
+
     socket
     |> assign(
       game_state: game_state,
@@ -1349,6 +1799,8 @@ defmodule MuseumCaperWeb.GameLive do
         revealed_mark_keys(previous_state, game_state, socket.assigns.player_id),
       animated_mark_keys:
         animated_mark_keys(previous_state, game_state, socket.assigns.player_id),
+      selected_revealed_round: selected_revealed_round,
+      revealed_route_marks: revealed_route_marks(game_state, selected_revealed_round),
       artwork_reveal_toast:
         artwork_reveal_toast(previous_state, game_state, socket.assigns.player_id)
     )
@@ -1432,7 +1884,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp pawn_movement_animation_enabled?(previous_state, game_state, player_id) do
     previous_state.phase == :playing and game_state.phase == :playing and
-      turn_player_id(game_state) != player_id
+      Map.has_key?(game_state.players, player_id)
   end
 
   defp detective_movement_animation_keys(previous_state, game_state) do
@@ -1567,15 +2019,21 @@ defmodule MuseumCaperWeb.GameLive do
     if latest_detective_result(state) == message, do: nil, else: message
   end
 
-  defp pending_window_escape_after_move(state, player_id, pos) do
+  defp pending_escape_after_move(state, player_id, pos) do
     if player_role(state, player_id) == :thief do
-      Board.entries_for_cell(pos)
-      |> Enum.find(fn entry -> entry.type == :window end)
+      pos
+      |> post_move_escape_entries()
+      |> List.first()
       |> case do
         nil -> nil
         entry -> entry.id
       end
     end
+  end
+
+  defp post_move_escape_entries(pos) do
+    Enum.filter(Board.entries_for_cell(pos), fn entry -> entry.type == :window end) ++
+      Board.exits_for_cell(pos)
   end
 
   defp parse_entry_id(entry_id) do
@@ -1725,6 +2183,8 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp host?(%{phase: :lobby, turn_order: [host_id | _]}, player_id), do: host_id == player_id
   defp host?(_state, _player_id), do: false
+
+  defp review_host?(state, player_id), do: state.host_player_id == player_id
 
   defp start_game_enabled?(state), do: map_size(state.players) >= 2
 
@@ -2244,6 +2704,7 @@ defmodule MuseumCaperWeb.GameLive do
       |> assign(:pawn_marks, pawn_marks(assigns.marks))
       |> assign_new(:revealed_mark_keys, fn -> [] end)
       |> assign_new(:animated_mark_keys, fn -> %{} end)
+      |> assign_new(:movement_path, fn -> [] end)
 
     ~H"""
     <span
@@ -2288,6 +2749,7 @@ defmodule MuseumCaperWeb.GameLive do
             data-mark-status={mark_status(mark)}
             data-animation-kind={if(movement_active, do: "move")}
             data-move-animation-key={if(movement_active, do: animation_key)}
+            data-move-path={if(movement_active, do: movement_path_attr(@movement_path))}
             data-reveal-key={if(movement_active, do: animation_key)}
             data-reveal-once={if(movement_active, do: "false")}
             data-reveal-duration={if(movement_active, do: "1200")}
@@ -2321,6 +2783,10 @@ defmodule MuseumCaperWeb.GameLive do
   defp mark_animation_dom_id(animation_key) do
     key = String.replace(animation_key, ~r/[^a-zA-Z0-9_-]+/, "-")
     "board-animation-#{key}"
+  end
+
+  defp movement_path_attr(path) do
+    Enum.map_join(path, " ", &position_key/1)
   end
 
   defp mark_reveal_dom_id(mark) do

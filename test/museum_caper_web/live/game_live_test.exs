@@ -325,6 +325,24 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(view, "#app-menu [data-phx-theme]")
   end
 
+  test "compact game menu exposes game audio disabled by default", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    {:ok, _pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: %{})
+
+    {:ok, view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(
+             view,
+             "#app-menu #game-audio-toggle[type='button'][phx-hook='GameAudioPreferenceHook'][phx-update='ignore'][aria-pressed='false'][data-audio-storage-key='museum_caper.game_audio_enabled']",
+             "Game audio"
+           )
+
+    assert has_element?(view, "#game-audio-toggle [data-audio-state-label]", "Off")
+    assert has_element?(view, "#game-audio-toggle .hero-speaker-x-mark")
+  end
+
   test "compact game menu links back to the lobby after the game starts", %{
     conn: conn,
     game_id: game_id
@@ -902,7 +920,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(thief_view, "#game-notification", "Move recorded.")
   end
 
-  test "other players see detective pawn movement animate on the destination", %{
+  test "visible viewers see detective pawn movement animate along its path", %{
     conn: conn,
     game_id: game_id
   } do
@@ -916,15 +934,12 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     render_click(element(alice_view, "#cell-4-4"))
 
-    assert has_element?(
-             bob_view,
-             "#cell-4-4 [data-board-mark='detective'][data-animation-kind='move'][data-move-animation-key]"
-           )
-
-    refute has_element?(
-             alice_view,
-             "#cell-4-4 [data-board-mark='detective'][data-animation-kind='move']"
-           )
+    for view <- [alice_view, bob_view] do
+      assert has_element?(
+               view,
+               "#cell-4-4 [data-board-mark='detective'][data-animation-kind='move'][data-move-animation-key][data-move-path]"
+             )
+    end
   end
 
   test "detectives see visible thief pawn movement animate on the destination", %{
@@ -947,12 +962,12 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#cell-6-3 [data-board-mark='thief'][data-animation-kind='move'][data-move-animation-key]"
+             "#cell-6-3 [data-board-mark='thief'][data-animation-kind='move'][data-move-animation-key][data-move-path='6-2 6-3']"
            )
 
-    refute has_element?(
+    assert has_element?(
              thief_view,
-             "#cell-6-3 [data-board-mark='thief'][data-animation-kind='move']"
+             "#cell-6-3 [data-board-mark='thief'][data-animation-kind='move'][data-move-animation-key][data-move-path='6-2 6-3']"
            )
   end
 
@@ -2017,6 +2032,28 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert has_element?(thief_view, "#escape-choice-panel", "Check this door lock?")
   end
 
+  test "clicking a three step inside square at an external door asks about the lock", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_fixed_setup_game!(game_id)
+    advance_to_thief_entry(pid)
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+    set_thief_position!(pid, {7, 6})
+
+    {:ok, thief_view, _html} = live(conn, "/game/#{game_id}?player_name=Theo")
+
+    assert has_element?(thief_view, "#cell-10-6.cursor-pointer")
+    render_click(element(thief_view, "#cell-10-6"))
+
+    state = GameServer.get_state(pid)
+    assert state.thief_position == {10, 6}
+    assert state.movement_spent > 0
+    assert state.phase == :playing
+    assert has_element?(thief_view, "#escape-choice-panel")
+    assert has_element?(thief_view, "#escape-choice-panel", "Check this door lock?")
+  end
+
   test "detectives see which window lock the thief checked when it is locked", %{
     conn: conn,
     game_id: game_id
@@ -2093,6 +2130,324 @@ defmodule MuseumCaperWeb.GameLiveTest do
     state = GameServer.get_state(pid)
     assert state.phase == :game_over
     assert state.winner == :thief
+
+    assert has_element?(thief_view, "#game-over-panel #thief-route-history", "Thief route")
+    assert has_element?(thief_view, "#thief-route-summary", "D2")
+    assert has_element?(thief_view, "#thief-route-summary", "1-5")
+    refute has_element?(thief_view, "#thief-route-summary", "1-4")
+    refute has_element?(thief_view, "#thief-route-move-1")
+
+    assert has_element?(
+             thief_view,
+             "#cell-6-1 [data-thief-route='entry'][data-thief-route-label='entry'][data-route-round='current']",
+             "ENTRY D2"
+           )
+
+    assert has_element?(
+             thief_view,
+             "#cell-1-4 [data-thief-route='path'][data-route-round='current'][data-route-direction='east'][data-thief-route-arrow-outline]",
+             "→"
+           )
+
+    assert has_element?(
+             thief_view,
+             "#cell-1-5 [data-thief-route='stop'][data-route-round='current'][data-thief-route-stop='1'][data-thief-route-stop-dot]",
+             "1"
+           )
+
+    assert has_element?(
+             thief_view,
+             "#cell-1-5 [data-thief-route='exit'][data-thief-route-label='exit'][data-route-round='current']",
+             "EXIT W1"
+           )
+  end
+
+  test "active thief route is not drawn on the board before the round completes", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+    advance_to_pawns(pid)
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-1", {3, 9})
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-2", {9, 5})
+
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | thief_position: {1, 4},
+          movement_path: [{6, 2}, {5, 2}, {4, 2}, {3, 2}, {2, 2}, {1, 2}, {1, 3}, {1, 4}],
+          thief_history: %{
+            entry: %{id: :exit_w1, label: "D2", position: {6, 2}},
+            exit: nil,
+            moves: []
+          }
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    refute has_element?(alice_view, "[data-thief-route]")
+    refute has_element?(alice_view, "#route-round-selector")
+  end
+
+  test "full game round report reveals the completed thief route", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+    advance_to_pawns(pid)
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-1", {3, 9})
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-2", {9, 5})
+
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | locks: Map.put(server_state.game_state.locks, :window_1_5, :open),
+          stolen_count: 2,
+          thief_position: {1, 4}
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    render_click(element(alice_view, "#cell-1-5"))
+    render_click(element(alice_view, "#confirm-escape-button"))
+
+    state = GameServer.get_state(pid)
+    assert state.phase == :round_review
+    assert state.round_number == 1
+
+    assert has_element?(alice_view, "#round-review-panel", "Round 1 review")
+    assert has_element?(alice_view, "#start-next-round-button", "Start next round")
+
+    {:ok, bob_view, _html} = live(conn, "/game/#{game_id}?player_name=Bob")
+    assert has_element?(bob_view, "#round-review-panel", "Round 1 review")
+    assert has_element?(bob_view, "#round-review-waiting", "Waiting for host")
+    refute has_element?(bob_view, "#start-next-round-button")
+    assert {:error, :not_host} = GameServer.start_next_round(pid, "player-bob")
+
+    assert has_element?(alice_view, "#route-round-selector")
+    assert has_element?(alice_view, "#select-route-round-1[aria-pressed='true']", "Round 1")
+
+    assert has_element?(
+             alice_view,
+             "#cell-6-1 [data-thief-route='entry'][data-thief-route-label='entry'][data-route-round='1']",
+             "ENTRY D2"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-1-4 [data-thief-route='path'][data-route-round='1'][data-route-direction='east'][data-thief-route-arrow-outline]",
+             "→"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-1-5 [data-thief-route='stop'][data-route-round='1'][data-thief-route-stop='1'][data-thief-route-stop-dot]",
+             "1"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-1-5 [data-thief-route='exit'][data-thief-route-label='exit'][data-route-round='1']",
+             "EXIT W1"
+           )
+
+    refute has_element?(alice_view, "#round-route-history-1 #thief-route-move-1")
+
+    render_click(element(alice_view, "#start-next-round-button"))
+
+    state = GameServer.get_state(pid)
+    assert state.phase == :setup
+    assert state.round_number == 2
+    assert state.thief_player_id == "player-bob"
+    assert has_element?(alice_view, "#setup-panel")
+    refute has_element?(alice_view, "#route-round-selector")
+    refute has_element?(alice_view, "[data-thief-route]")
+  end
+
+  test "round route selector switches the path drawn on the board", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | phase: :round_review,
+          setup_step: :locks,
+          round_number: 3,
+          round_results: [
+            %{
+              round_number: 1,
+              thief_player_id: "player-alice",
+              stolen_count: 2,
+              outcome: :escaped,
+              reason: :escaped,
+              thief_history: %{
+                entry: %{id: :exit_w1, label: "D2", position: {6, 2}},
+                exit: nil,
+                moves: [%{path: [{6, 2}, {5, 2}, {4, 2}]}]
+              }
+            },
+            %{
+              round_number: 2,
+              thief_player_id: "player-bob",
+              stolen_count: 1,
+              outcome: :escaped,
+              reason: :escaped,
+              thief_history: %{
+                entry: %{id: :exit_e1, label: "D1", position: {5, 11}},
+                exit: nil,
+                moves: [%{path: [{5, 11}, {5, 10}, {5, 9}]}]
+              }
+            }
+          ]
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(alice_view, "#select-route-round-2[aria-pressed='true']")
+
+    assert has_element?(
+             alice_view,
+             "#cell-5-12 [data-thief-route='entry'][data-route-round='2']",
+             "ENTRY D1"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-5-9 [data-thief-route='stop'][data-route-round='2'][data-thief-route-stop='1'][data-thief-route-stop-dot]",
+             "1"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-5-10 [data-thief-route='path'][data-route-round='2'][data-route-direction='west'][data-thief-route-arrow-outline]",
+             "←"
+           )
+
+    refute has_element?(alice_view, "#cell-6-1 [data-thief-route='entry']")
+
+    render_click(element(alice_view, "#select-route-round-1"))
+
+    assert has_element?(alice_view, "#select-route-round-1[aria-pressed='true']")
+
+    assert has_element?(
+             alice_view,
+             "#cell-6-1 [data-thief-route='entry'][data-route-round='1']",
+             "ENTRY D2"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-4-2 [data-thief-route='stop'][data-route-round='1'][data-thief-route-stop='1'][data-thief-route-stop-dot]",
+             "1"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-5-2 [data-thief-route='path'][data-route-round='1'][data-route-direction='north'][data-thief-route-arrow-outline]",
+             "↑"
+           )
+
+    refute has_element?(alice_view, "#cell-5-12 [data-thief-route='entry']")
+  end
+
+  test "completed route without escape has no exit badge but shows turn stops", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | phase: :round_review,
+          setup_step: :locks,
+          round_number: 2,
+          round_results: [
+            %{
+              round_number: 1,
+              thief_player_id: "player-alice",
+              stolen_count: 0,
+              outcome: :detectives,
+              reason: :caught,
+              thief_history: %{
+                entry: %{id: :exit_w1, label: "D2", position: {6, 2}},
+                exit: nil,
+                moves: [
+                  %{path: [{6, 2}, {6, 3}]},
+                  %{path: [{6, 3}, {5, 3}]},
+                  %{path: [{5, 3}, {6, 3}]}
+                ]
+              }
+            }
+          ]
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(
+             alice_view,
+             "#cell-6-1 [data-thief-route='entry'][data-route-round='1']",
+             "ENTRY D2"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-6-3 [data-thief-route='stop'][data-route-round='1'][data-thief-route-stop='1'][data-thief-route-stop-dot]",
+             "1"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-5-3 [data-thief-route='stop'][data-route-round='1'][data-thief-route-stop='2'][data-thief-route-stop-dot]",
+             "2"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-6-3 [data-thief-route='stop'][data-route-round='1'][data-thief-route-stop='3'][data-thief-route-stop-dot]",
+             "3"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-6-2 [data-thief-route='path'][data-route-round='1'][data-route-direction='east'][data-thief-route-arrow-outline]",
+             "→"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#cell-5-3 [data-thief-route='path'][data-route-round='1'][data-route-direction='south'][data-thief-route-arrow-outline]",
+             "↓"
+           )
+
+    refute has_element?(alice_view, "[data-thief-route='exit']")
   end
 
   test "limited game escape without three artworks awards detectives", %{
