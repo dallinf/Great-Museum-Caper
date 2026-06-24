@@ -3,6 +3,7 @@ import {
   nextReplayIndex,
   previousReplayIndex,
   replayEventDuration,
+  replaceReplayState,
 } from "../replay_playback.js";
 import {parseMovePath, pathCellId} from "../board_movement_animation.js";
 
@@ -20,33 +21,70 @@ const centerOf = element => {
 
 const ReplayPlaybackHook = {
   mounted() {
-    this.state = initialReplayState(this.events());
-    this.caption = this.el.querySelector("[data-replay-caption]");
-    this.speedInput = this.el.querySelector("[data-replay-speed]");
+    this.replayEventsJSON = this.el.dataset.replayEvents || "[]";
+    this.state = initialReplayState(this.eventsFromJSON(this.replayEventsJSON));
+    this.root = this.controlRoot();
+    this.handleControlClick = event => {
+      const button = event.target.closest("[data-replay-command]");
+
+      if (!button || !this.root.contains(button)) {
+        return;
+      }
+
+      this.command(button.dataset.replayCommand);
+    };
+    this.handleChange = event => {
+      if (!event.target.matches("[data-replay-speed]")) {
+        return;
+      }
+
+      this.state = {...this.state, speed: Number.parseFloat(event.target.value || "1")};
+    };
+    this.root.addEventListener("click", this.handleControlClick);
+    this.root.addEventListener("change", this.handleChange);
     this.bindControls();
+    this.renderFrame();
+  },
+  updated() {
+    this.bindControls();
+
+    const replayEventsJSON = this.el.dataset.replayEvents || "[]";
+
+    if (replayEventsJSON === this.replayEventsJSON) {
+      return;
+    }
+
+    this.replayEventsJSON = replayEventsJSON;
+    this.stop();
+    this.state = replaceReplayState(this.state, this.eventsFromJSON(replayEventsJSON));
     this.renderFrame();
   },
   destroyed() {
     this.stop();
     this.clearLayer();
+    this.root?.removeEventListener("click", this.handleControlClick);
+    this.root?.removeEventListener("change", this.handleChange);
   },
   events() {
+    return this.eventsFromJSON(this.el.dataset.replayEvents || "[]");
+  },
+  eventsFromJSON(replayEventsJSON) {
     try {
-      return JSON.parse(this.el.dataset.replayEvents || "[]");
+      return JSON.parse(replayEventsJSON || "[]");
     } catch (_error) {
       return [];
     }
   },
+  controlRoot() {
+    return this.el.closest("#replay-panel") || this.el.parentElement || this.el;
+  },
   bindControls() {
-    this.el.querySelectorAll("[data-replay-command]").forEach(button => {
-      button.addEventListener("click", event => {
-        this.command(event.currentTarget.dataset.replayCommand);
-      });
-    });
+    this.caption = this.el.querySelector("[data-replay-caption]");
+    this.speedInput = this.el.querySelector("[data-replay-speed]");
 
-    this.speedInput?.addEventListener("change", event => {
-      this.state = {...this.state, speed: Number.parseFloat(event.target.value || "1")};
-    });
+    if (this.speedInput) {
+      this.speedInput.value = `${this.state.speed}`;
+    }
   },
   command(command) {
     if (command === "play") {

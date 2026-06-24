@@ -9,6 +9,14 @@ export const initialReplayState = events => ({
   speed: 1,
 });
 
+export const replaceReplayState = (state, events) => ({
+  ...initialReplayState(events),
+  speed:
+    state && Number.isFinite(Number.parseFloat(state.speed))
+      ? Number.parseFloat(state.speed)
+      : 1,
+});
+
 export const nextReplayIndex = state =>
   Math.min(state.index + 1, Math.max(state.events.length - 1, 0));
 
