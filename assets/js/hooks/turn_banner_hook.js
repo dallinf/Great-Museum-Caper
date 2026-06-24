@@ -1,3 +1,8 @@
+import {
+  GAME_AUDIO_CHANGED_EVENT,
+  gameAudioEnabled,
+} from "../game_audio_preference";
+
 const DEFAULT_DURATION_MS = 3000;
 const LOUD_CHIME_VOLUME = 0.18;
 
@@ -20,6 +25,10 @@ const getAudioContext = () => {
 };
 
 const unlockTurnAudio = () => {
+  if (!gameAudioEnabled()) {
+    return;
+  }
+
   const context = getAudioContext();
 
   if (!context || context.state !== "suspended") {
@@ -40,6 +49,12 @@ const installAudioUnlock = () => {
     window.addEventListener(eventName, unlockTurnAudio, {passive: true});
   });
 };
+
+window.addEventListener(GAME_AUDIO_CHANGED_EVENT, event => {
+  if (event.detail?.enabled) {
+    unlockTurnAudio();
+  }
+});
 
 const playTone = (context, frequency, startTime, duration, volume, type = "sine") => {
   const oscillator = context.createOscillator();
@@ -153,6 +168,10 @@ const TurnBannerHook = {
   },
   playChime() {
     const chime = this.el.dataset.turnBannerChime;
+
+    if (!gameAudioEnabled()) {
+      return;
+    }
 
     if (["loud", "true"].includes(chime)) {
       playTurnChime(chime);

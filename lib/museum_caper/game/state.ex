@@ -1,6 +1,8 @@
 defmodule MuseumCaper.Game.State do
   alias MuseumCaper.Game.Board
 
+  @empty_thief_history %{entry: nil, exit: nil, moves: []}
+
   defstruct players: %{},
             turn_order: [],
             current_turn: nil,
@@ -35,6 +37,7 @@ defmodule MuseumCaper.Game.State do
             turn_actions_remaining: [],
             movement_path: [],
             movement_spent: 0,
+            thief_history: @empty_thief_history,
             winner: nil,
             game_over_reason: nil
 
@@ -72,6 +75,7 @@ defmodule MuseumCaper.Game.State do
       round_results: Keyword.get(opts, :round_results, []),
       winning_player_ids: Keyword.get(opts, :winning_player_ids, []),
       game_log: Keyword.get(opts, :game_log, []),
+      thief_history: Keyword.get(opts, :thief_history, @empty_thief_history),
       thief_player_id: thief_id,
       locks: locks,
       cameras: cameras,
@@ -80,6 +84,8 @@ defmodule MuseumCaper.Game.State do
       phase: :setup
     }
   end
+
+  def empty_thief_history, do: @empty_thief_history
 
   def controlled_detective_ids(controller_id) do
     ["#{controller_id}:detective-1", "#{controller_id}:detective-2"]
