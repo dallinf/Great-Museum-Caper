@@ -2374,6 +2374,124 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(alice_view, "#cell-5-12 [data-thief-route='entry']")
   end
 
+  test "replay controls are hidden during active play", %{conn: conn, game_id: game_id} do
+    pid = start_two_player_full_game!(game_id)
+    advance_to_pawns(pid)
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-1", {3, 9})
+
+    assert {:ok, _state} =
+             GameServer.place_detective_pawn(pid, "player-bob:detective-2", {9, 5})
+
+    assert {:ok, _state} = GameServer.enter_museum(pid, :exit_w1)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    refute has_element?(alice_view, "#replay-panel")
+    refute has_element?(alice_view, "#replay-playback")
+  end
+
+  test "round review exposes replay payload for the latest completed round", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+
+    :sys.replace_state(pid, fn server_state ->
+      replay_events = [
+        %{
+          id: 1,
+          round_number: 1,
+          turn_index: 0,
+          actor_id: "player-alice",
+          actor_role: :thief,
+          actor_label: "Alice",
+          type: :enter,
+          path: [{6, 1}, {6, 2}],
+          from: {6, 1},
+          to: {6, 2},
+          result: nil,
+          label: "Alice entered through D2."
+        }
+      ]
+
+      game_state = %{
+        server_state.game_state
+        | phase: :round_review,
+          round_number: 2,
+          round_results: [
+            %{
+              round_number: 1,
+              thief_player_id: "player-alice",
+              stolen_count: 0,
+              outcome: :detectives,
+              reason: :caught,
+              thief_history: %{entry: nil, exit: nil, moves: []},
+              replay_events: replay_events
+            }
+          ]
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(alice_view, "#replay-panel")
+    assert has_element?(alice_view, "#replay-round-button", "Replay round")
+    assert has_element?(alice_view, "#replay-playback[phx-hook='ReplayPlaybackHook']")
+    assert has_element?(alice_view, "#replay-playback[data-replay-event-count='1']")
+
+    assert has_element?(
+             alice_view,
+             "#replay-playback[data-replay-events*='Alice entered through D2.']"
+           )
+  end
+
+  test "game over exposes limited game replay events", %{conn: conn, game_id: game_id} do
+    pid = start_fixed_setup_game!(game_id)
+
+    :sys.replace_state(pid, fn server_state ->
+      replay_events = [
+        %{
+          id: 1,
+          round_number: 1,
+          turn_index: 0,
+          actor_id: "player-theo",
+          actor_role: :thief,
+          actor_label: "Theo",
+          type: :escape,
+          path: [{1, 5}],
+          from: {1, 5},
+          to: {1, 5},
+          result: :escaped,
+          label: "Theo escaped through W1."
+        }
+      ]
+
+      game_state = %{
+        server_state.game_state
+        | phase: :game_over,
+          winner: :thief,
+          game_over_reason: :escaped,
+          replay_events: replay_events
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, thief_view, _html} = live(conn, "/game/#{game_id}?player_name=Theo")
+
+    assert has_element?(thief_view, "#replay-panel")
+    assert has_element?(thief_view, "#replay-playback[data-replay-event-count='1']")
+
+    assert has_element?(
+             thief_view,
+             "#replay-playback[data-replay-events*='Theo escaped through W1.']"
+           )
+  end
+
   test "completed route without escape has no exit badge but shows turn stops", %{
     conn: conn,
     game_id: game_id

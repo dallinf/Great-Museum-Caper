@@ -1,7 +1,7 @@
 defmodule MuseumCaperWeb.GameLive do
   use MuseumCaperWeb, :live_view
   alias MuseumCaper.Lobby.Server, as: LobbyServer
-  alias MuseumCaper.Game.{Board, PawnColors, Rules, Server}
+  alias MuseumCaper.Game.{Board, PawnColors, Replay, Rules, Server}
 
   @impl true
   def mount(%{"game_id" => game_id} = params, _session, socket) do
@@ -48,11 +48,14 @@ defmodule MuseumCaperWeb.GameLive do
         game_state = Server.get_state(server)
         selected_revealed_round = latest_revealed_round_number(game_state)
 
+        replay_payload = selected_replay_payload(game_state, selected_revealed_round)
+
         {:ok,
          assign(socket,
            game_state: game_state,
            selected_revealed_round: selected_revealed_round,
-           revealed_route_marks: revealed_route_marks(game_state, selected_revealed_round)
+           revealed_route_marks: revealed_route_marks(game_state, selected_revealed_round),
+           replay_payload: replay_payload
          )}
     end
   end
@@ -70,6 +73,8 @@ defmodule MuseumCaperWeb.GameLive do
     selected_revealed_round =
       selected_revealed_round(socket.assigns.selected_revealed_round, previous_state, game_state)
 
+    replay_payload = selected_replay_payload(game_state, selected_revealed_round)
+
     socket =
       socket
       |> assign(
@@ -78,6 +83,7 @@ defmodule MuseumCaperWeb.GameLive do
         animated_mark_keys: animated_mark_keys,
         selected_revealed_round: selected_revealed_round,
         revealed_route_marks: revealed_route_marks(game_state, selected_revealed_round),
+        replay_payload: replay_payload,
         artwork_reveal_toast: next_artwork_reveal_toast(socket, previous_state, game_state)
       )
       |> maybe_show_turn_banner(previous_turn, game_state)
@@ -481,6 +487,7 @@ defmodule MuseumCaperWeb.GameLive do
               <.full_game_scoreboard
                 game_state={@game_state}
                 selected_revealed_round={@selected_revealed_round}
+                replay_payload={@replay_payload}
               />
             <% end %>
 
@@ -568,6 +575,7 @@ defmodule MuseumCaperWeb.GameLive do
                 <.game_over_panel
                   game_state={@game_state}
                   selected_revealed_round={@selected_revealed_round}
+                  replay_payload={@replay_payload}
                 />
             <% end %>
           </aside>
@@ -1096,6 +1104,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   attr :game_state, :map, required: true
   attr :selected_revealed_round, :integer, default: nil
+  attr :replay_payload, :list, default: []
 
   def full_game_scoreboard(assigns) do
     ~H"""
@@ -1147,12 +1156,18 @@ defmodule MuseumCaperWeb.GameLive do
         game_state={@game_state}
         selected_revealed_round={@selected_revealed_round}
       />
+      <.replay_panel
+        game_state={@game_state}
+        selected_revealed_round={@selected_revealed_round}
+        replay_payload={@replay_payload}
+      />
     </section>
     """
   end
 
   attr :game_state, :map, required: true
   attr :selected_revealed_round, :integer, default: nil
+  attr :replay_payload, :list, default: []
 
   def game_over_panel(assigns) do
     ~H"""
@@ -1166,6 +1181,11 @@ defmodule MuseumCaperWeb.GameLive do
           :if={thief_histories_present?(@game_state.round_results)}
           game_state={@game_state}
           selected_revealed_round={@selected_revealed_round}
+        />
+        <.replay_panel
+          game_state={@game_state}
+          selected_revealed_round={@selected_revealed_round}
+          replay_payload={@replay_payload}
         />
         <ul id="round-report" class="mt-3 space-y-1 text-sm text-stone-300">
           <%= for result <- @game_state.round_results do %>
@@ -1186,8 +1206,73 @@ defmodule MuseumCaperWeb.GameLive do
           Reason: {game_over_reason_label(@game_state.game_over_reason)}
         </p>
         <.thief_route_history history={@game_state.thief_history} />
+        <.replay_panel
+          game_state={@game_state}
+          selected_revealed_round={@selected_revealed_round}
+          replay_payload={@replay_payload}
+        />
       <% end %>
     </div>
+    """
+  end
+
+  attr :game_state, :map, required: true
+  attr :selected_revealed_round, :integer, default: nil
+  attr :replay_payload, :list, default: []
+
+  def replay_panel(assigns) do
+    ~H"""
+    <section
+      :if={@replay_payload != []}
+      id="replay-panel"
+      class="space-y-2 rounded-lg border border-sky-300/30 bg-sky-300/10 p-3"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-sky-100">
+          Replay
+        </h3>
+        <button
+          id="replay-round-button"
+          type="button"
+          data-replay-command="restart"
+          class="rounded-md bg-sky-300 px-2 py-1 text-xs font-black text-stone-950 transition hover:bg-sky-200"
+        >
+          Replay round
+        </button>
+      </div>
+      <div
+        id="replay-playback"
+        phx-hook="ReplayPlaybackHook"
+        phx-update="ignore"
+        data-replay-events={replay_events_json(@replay_payload)}
+        data-replay-event-count={length(@replay_payload)}
+        class="space-y-2"
+      >
+        <p data-replay-caption class="min-h-5 text-sm font-semibold text-sky-50"></p>
+        <div class="flex flex-wrap items-center gap-1">
+          <button type="button" data-replay-command="back" class={replay_control_class()}>
+            <.icon name="hero-backward" class="size-4" />
+          </button>
+          <button type="button" data-replay-command="play" class={replay_control_class()}>
+            <.icon name="hero-play" class="size-4" />
+          </button>
+          <button type="button" data-replay-command="forward" class={replay_control_class()}>
+            <.icon name="hero-forward" class="size-4" />
+          </button>
+          <button type="button" data-replay-command="exit" class={replay_control_class()}>
+            Exit replay
+          </button>
+          <select
+            data-replay-speed
+            class="rounded-md border border-stone-700 bg-stone-950 px-2 py-1 text-xs font-bold text-stone-100"
+          >
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+          </select>
+        </div>
+      </div>
+    </section>
     """
   end
 
@@ -1363,6 +1448,58 @@ defmodule MuseumCaperWeb.GameLive do
   end
 
   defp revealed_route_marks(_game_state, _selected_round), do: %{}
+
+  defp selected_replay_payload(%{phase: :round_review} = game_state, selected_round) do
+    game_state
+    |> replay_events_for_round(selected_round)
+    |> Replay.payload_events(game_state)
+  end
+
+  defp selected_replay_payload(
+         %{phase: :game_over, game_mode: :full} = game_state,
+         selected_round
+       ) do
+    game_state
+    |> replay_events_for_round(selected_round)
+    |> Replay.payload_events(game_state)
+  end
+
+  defp selected_replay_payload(
+         %{phase: :game_over, game_mode: :limited} = game_state,
+         _selected_round
+       ) do
+    Replay.payload_events(game_state.replay_events, game_state)
+  end
+
+  defp selected_replay_payload(_game_state, _selected_round), do: []
+
+  defp replay_events_for_round(game_state, selected_round) when is_integer(selected_round) do
+    game_state.round_results
+    |> Enum.find(&(&1.round_number == selected_round))
+    |> case do
+      %{replay_events: events} when is_list(events) -> events
+      _result -> []
+    end
+  end
+
+  defp replay_events_for_round(game_state, _selected_round) do
+    game_state.round_results
+    |> Enum.reverse()
+    |> Enum.find_value([], fn result ->
+      case result do
+        %{replay_events: events} when is_list(events) and events != [] -> events
+        _result -> false
+      end
+    end)
+  end
+
+  defp replay_control_class do
+    "inline-flex min-h-8 items-center justify-center rounded-md border border-sky-200/40 bg-stone-950 px-2 text-xs font-black text-sky-100 transition hover:border-sky-100 hover:text-white"
+  end
+
+  defp replay_events_json(payload) do
+    Phoenix.json_library().encode!(payload)
+  end
 
   defp route_marks(history, round) when is_map(history) do
     round = to_string(round)
@@ -1792,6 +1929,8 @@ defmodule MuseumCaperWeb.GameLive do
     selected_revealed_round =
       selected_revealed_round(socket.assigns.selected_revealed_round, previous_state, game_state)
 
+    replay_payload = selected_replay_payload(game_state, selected_revealed_round)
+
     socket
     |> assign(
       game_state: game_state,
@@ -1801,6 +1940,7 @@ defmodule MuseumCaperWeb.GameLive do
         animated_mark_keys(previous_state, game_state, socket.assigns.player_id),
       selected_revealed_round: selected_revealed_round,
       revealed_route_marks: revealed_route_marks(game_state, selected_revealed_round),
+      replay_payload: replay_payload,
       artwork_reveal_toast:
         artwork_reveal_toast(previous_state, game_state, socket.assigns.player_id)
     )
