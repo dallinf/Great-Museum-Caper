@@ -1,5 +1,5 @@
 defmodule MuseumCaper.Game.Rules do
-  alias MuseumCaper.Game.{Board, PawnColors, State}
+  alias MuseumCaper.Game.{Board, PawnColors, Replay, State}
 
   @limited_escape_stolen_count 3
 
@@ -148,6 +148,19 @@ defmodule MuseumCaper.Game.Rules do
           dice: dice
       }
 
+      state =
+        state
+        |> Replay.append_event(%{
+          type: :enter,
+          actor_id: state.thief_player_id,
+          actor_role: :thief,
+          path: entry_path(entry, pos),
+          from: Board.exit_door_cell(entry),
+          to: pos,
+          result: nil,
+          label: "#{player_name(state, state.thief_player_id)} entered through #{entry.label}."
+        })
+
       {:ok, state}
     else
       _ -> {:error, :invalid_entry}
@@ -223,6 +236,16 @@ defmodule MuseumCaper.Game.Rules do
         stolen_count: state.stolen_count + 1,
         game_log: state.game_log ++ ["Artwork #{label} stolen."]
     }
+    |> Replay.append_event(%{
+      type: :steal,
+      actor_id: state.thief_player_id,
+      actor_role: :thief,
+      path: [pos],
+      from: pos,
+      to: pos,
+      result: :stolen,
+      label: "#{player_name(state, state.thief_player_id)} stole #{label}."
+    })
   end
 
   # --- Detective Movement ---
@@ -363,7 +386,13 @@ defmodule MuseumCaper.Game.Rules do
         %{state | movement_path: movement_path, movement_spent: length(movement_path) - 1}
       end
 
-    put_player_position(state, role, player_id, destination)
+    state = put_player_position(state, role, player_id, destination)
+
+    if state.movement_path == [] do
+      state
+    else
+      Replay.put_movement_event(state, role, player_id, state.movement_path)
+    end
   end
 
   defp player_position(state, :thief, _player_id), do: state.thief_position
@@ -402,7 +431,21 @@ defmodule MuseumCaper.Game.Rules do
       adj_cell = Board.exit_adjacent_cell(entry)
 
       if state.thief_position == adj_cell do
-        case Map.get(state.locks, exit_id, :open) do
+        lock_result = Map.get(state.locks, exit_id, :open)
+
+        state =
+          Replay.append_event(state, %{
+            type: :lock_check,
+            actor_id: state.thief_player_id,
+            actor_role: :thief,
+            path: [state.thief_position],
+            from: state.thief_position,
+            to: state.thief_position,
+            result: lock_result,
+            label: "#{player_name(state, state.thief_player_id)} checked the #{entry.label} lock."
+          })
+
+        case lock_result do
           :open ->
             finish_escape(state, entry)
 
@@ -426,6 +469,16 @@ defmodule MuseumCaper.Game.Rules do
       |> commit_thief_movement()
       |> put_thief_exit_history(entry)
       |> resolve_pending_steal()
+      |> Replay.append_event(%{
+        type: :escape,
+        actor_id: state.thief_player_id,
+        actor_role: :thief,
+        path: [state.thief_position],
+        from: state.thief_position,
+        to: Board.exit_door_cell(entry),
+        result: :escaped,
+        label: "#{player_name(state, state.thief_player_id)} escaped through #{entry.label}."
+      })
 
     if limited_escape_without_enough_art?(state) do
       {:ok, :escaped_without_enough_art,
@@ -468,8 +521,7 @@ defmodule MuseumCaper.Game.Rules do
         turn_power_off_on_power_room(state, state.thief_position)
 
       Map.has_key?(state.detective_positions, state.current_turn) ->
-        pos = Map.get(state.detective_positions, state.current_turn)
-        turn_power_on_on_power_room(state, pos)
+        turn_power_on_from_detective_action(state, state.current_turn)
 
       true ->
         state
@@ -477,19 +529,42 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp turn_power_off_on_power_room(%{power_active: true} = state, pos) do
-    if power_room?(pos), do: %{state | power_active: false}, else: state
+    if power_room?(pos) do
+      Replay.append_event(%{state | power_active: false}, %{
+        type: :power,
+        actor_id: state.thief_player_id,
+        actor_role: :thief,
+        path: [pos],
+        from: pos,
+        to: pos,
+        result: :off,
+        label: "Power turned off."
+      })
+    else
+      state
+    end
   end
 
   defp turn_power_off_on_power_room(state, _pos), do: state
 
-  defp turn_power_on_on_power_room(%{power_active: false} = state, pos) do
-    if power_room?(pos), do: %{state | power_active: true, power_revealed: false}, else: state
-  end
-
-  defp turn_power_on_on_power_room(state, _pos), do: state
-
   defp turn_power_on_from_detective_action(state, detective_id) do
-    turn_power_on_on_power_room(state, Map.get(state.detective_positions, detective_id))
+    pos = Map.get(state.detective_positions, detective_id)
+
+    if state.power_active == false and power_room?(pos) do
+      %{state | power_active: true, power_revealed: false}
+      |> Replay.append_event(%{
+        type: :power,
+        actor_id: detective_id,
+        actor_role: :detective,
+        path: [pos],
+        from: pos,
+        to: pos,
+        result: :on,
+        label: "Power turned on."
+      })
+    else
+      state
+    end
   end
 
   defp power_room?(pos) do
@@ -504,6 +579,18 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp catch_thief(state) do
+    state =
+      Replay.append_event(state, %{
+        type: :capture,
+        actor_id: state.current_turn,
+        actor_role: :detective,
+        path: [state.thief_position],
+        from: state.thief_position,
+        to: state.thief_position,
+        result: :caught,
+        label: "Detectives caught #{player_name(state, state.thief_player_id)}."
+      })
+
     finish_round(state, :detectives, :caught)
   end
 
@@ -523,7 +610,8 @@ defmodule MuseumCaper.Game.Rules do
         dice: dice,
         motion_detector_decision: nil,
         movement_path: [],
-        movement_spent: 0
+        movement_spent: 0,
+        turn_index: state.turn_index + 1
     }
   end
 
@@ -559,6 +647,7 @@ defmodule MuseumCaper.Game.Rules do
   defp thief_turn?(state, player_id), do: player_id == state.thief_player_id
 
   defp finish_round(%{game_mode: :full} = state, outcome, reason) do
+    state = put_round_end_replay_event(state, outcome, reason)
     scored_count = scored_stolen_count(outcome, state.stolen_count)
 
     artwork_scores =
@@ -572,7 +661,8 @@ defmodule MuseumCaper.Game.Rules do
       stolen_count: scored_count,
       outcome: outcome,
       reason: reason,
-      thief_history: state.thief_history
+      thief_history: state.thief_history,
+      replay_events: state.replay_events
     }
 
     round_results = state.round_results ++ [round_result]
@@ -609,6 +699,7 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp finish_round(state, outcome, reason) do
+    state = put_round_end_replay_event(state, outcome, reason)
     winner = if outcome == :thief, do: :thief, else: :detectives
     %{state | phase: :game_over, winner: winner, game_over_reason: reason}
   end
@@ -700,6 +791,28 @@ defmodule MuseumCaper.Game.Rules do
       exit: nil,
       moves: []
     }
+  end
+
+  defp entry_path(%{type: :door} = entry, pos), do: [Board.exit_door_cell(entry), pos]
+  defp entry_path(_entry, pos), do: [pos]
+
+  defp put_round_end_replay_event(state, outcome, reason) do
+    Replay.append_event(state, %{
+      type: :round_end,
+      actor_id: state.thief_player_id,
+      actor_role: :thief,
+      path: [],
+      from: nil,
+      to: nil,
+      result: reason,
+      label:
+        round_result_message(state, %{
+          round_number: state.round_number,
+          thief_player_id: state.thief_player_id,
+          stolen_count: scored_stolen_count(outcome, state.stolen_count),
+          outcome: outcome
+        })
+    })
   end
 
   defp commit_thief_movement(state) do
