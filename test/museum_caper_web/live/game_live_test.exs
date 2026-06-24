@@ -2600,6 +2600,76 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert replay_document |> LazyHTML.query("#replay-playback") |> Enum.count() == 1
   end
 
+  test "replay playback surface includes accessible controls and speed selector", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    pid = start_two_player_full_game!(game_id)
+
+    :sys.replace_state(pid, fn server_state ->
+      game_state = %{
+        server_state.game_state
+        | phase: :round_review,
+          round_number: 2,
+          round_results: [
+            %{
+              round_number: 1,
+              thief_player_id: "player-alice",
+              stolen_count: 0,
+              outcome: :detectives,
+              reason: :caught,
+              thief_history: %{entry: nil, exit: nil, moves: []},
+              replay_events: [
+                %{
+                  id: 1,
+                  round_number: 1,
+                  turn_index: 0,
+                  actor_id: "player-alice",
+                  actor_role: :thief,
+                  actor_label: "Alice",
+                  type: :enter,
+                  path: [{6, 1}, {6, 2}],
+                  from: {6, 1},
+                  to: {6, 2},
+                  result: nil,
+                  label: "Alice entered through D2."
+                }
+              ]
+            }
+          ]
+      }
+
+      %{server_state | game_state: game_state}
+    end)
+
+    {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
+
+    assert has_element?(alice_view, "#replay-playback [data-replay-command='back']")
+    assert has_element?(alice_view, "#replay-playback [data-replay-command='play']")
+    assert has_element?(alice_view, "#replay-playback [data-replay-command='forward']")
+
+    assert has_element?(
+             alice_view,
+             "#replay-playback [data-replay-command='exit']",
+             "Exit replay"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#replay-playback select[data-replay-speed] option[value='0.5']"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#replay-playback select[data-replay-speed] option[value='1'][selected]"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#replay-playback select[data-replay-speed] option[value='2']"
+           )
+  end
+
   test "completed route without escape has no exit badge but shows turn stops", %{
     conn: conn,
     game_id: game_id

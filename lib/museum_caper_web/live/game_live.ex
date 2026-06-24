@@ -1230,17 +1230,17 @@ defmodule MuseumCaperWeb.GameLive do
     <section
       :if={@replay_payload != []}
       id="replay-panel"
-      class="space-y-2 rounded-lg border border-sky-300/30 bg-sky-300/10 p-3"
+      class="space-y-3 rounded-lg border border-sky-300/25 bg-slate-950/70 p-3 shadow-[0_0.65rem_1.5rem_rgba(2,6,23,0.2)] backdrop-blur-sm"
     >
       <div class="flex items-center justify-between gap-2">
-        <h3 class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-sky-100">
+        <h3 class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-sky-100/90">
           Replay
         </h3>
         <button
           id="replay-round-button"
           type="button"
           data-replay-command="restart"
-          class="rounded-md bg-sky-300 px-2 py-1 text-xs font-black text-stone-950 transition hover:bg-sky-200"
+          class="inline-flex min-h-8 items-center justify-center rounded-md border border-sky-200/40 bg-sky-300 px-2.5 py-1 text-xs font-black text-slate-950 transition duration-150 hover:bg-sky-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-100"
         >
           Replay round
         </button>
@@ -1251,25 +1251,50 @@ defmodule MuseumCaperWeb.GameLive do
         phx-update="ignore"
         data-replay-events={replay_events_json(@replay_payload)}
         data-replay-event-count={length(@replay_payload)}
-        class="space-y-2"
+        class="space-y-2.5"
       >
-        <p data-replay-caption class="min-h-5 text-sm font-semibold text-sky-50"></p>
-        <div class="flex flex-wrap items-center gap-1">
-          <button type="button" data-replay-command="back" class={replay_control_class()}>
+        <p
+          data-replay-caption
+          class="min-h-5 text-sm font-semibold leading-5 text-sky-50/95"
+        >
+        </p>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            aria-label="Step back"
+            data-replay-command="back"
+            class={replay_control_class()}
+          >
             <.icon name="hero-backward" class="size-4" />
           </button>
-          <button type="button" data-replay-command="play" class={replay_control_class()}>
+          <button
+            type="button"
+            aria-label="Play replay"
+            data-replay-command="play"
+            class={replay_control_class()}
+          >
             <.icon name="hero-play" class="size-4" />
           </button>
-          <button type="button" data-replay-command="forward" class={replay_control_class()}>
+          <button
+            type="button"
+            aria-label="Step forward"
+            data-replay-command="forward"
+            class={replay_control_class()}
+          >
             <.icon name="hero-forward" class="size-4" />
           </button>
-          <button type="button" data-replay-command="exit" class={replay_control_class()}>
+          <button
+            type="button"
+            aria-label="Exit replay"
+            data-replay-command="exit"
+            class={replay_control_class()}
+          >
             Exit replay
           </button>
           <select
+            aria-label="Replay speed"
             data-replay-speed
-            class="rounded-md border border-stone-700 bg-stone-950 px-2 py-1 text-xs font-bold text-stone-100"
+            class="min-h-8 rounded-md border border-sky-200/35 bg-slate-950 px-2 py-1 text-xs font-bold text-sky-50 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-100"
           >
             <option value="0.5">0.5x</option>
             <option value="1" selected>1x</option>
@@ -1392,6 +1417,15 @@ defmodule MuseumCaperWeb.GameLive do
   defp thief_history_present?(%{entry: entry, moves: moves}), do: entry != nil or moves != []
   defp thief_history_present?(_history), do: false
 
+  defp replay_round_available?(result) when is_map(result) do
+    thief_history_present?(Map.get(result, :thief_history)) or replay_events_present?(result)
+  end
+
+  defp replay_round_available?(_result), do: false
+
+  defp replay_events_present?(%{replay_events: events}) when is_list(events), do: events != []
+  defp replay_events_present?(_result), do: false
+
   defp selected_revealed_round(_selected_round, nil, game_state) do
     latest_revealed_round_number(game_state)
   end
@@ -1418,7 +1452,7 @@ defmodule MuseumCaperWeb.GameLive do
   defp selectable_revealed_round?(game_state, round_number) when is_integer(round_number) do
     Enum.any?(game_state.round_results, fn result ->
       result.round_number == round_number and
-        thief_history_present?(Map.get(result, :thief_history))
+        replay_round_available?(result)
     end)
   end
 
@@ -1426,7 +1460,7 @@ defmodule MuseumCaperWeb.GameLive do
 
   defp latest_revealed_round_number(game_state) do
     game_state.round_results
-    |> Enum.filter(&thief_history_present?(Map.get(&1, :thief_history)))
+    |> Enum.filter(&replay_round_available?/1)
     |> List.last()
     |> case do
       nil -> nil
@@ -1490,7 +1524,7 @@ defmodule MuseumCaperWeb.GameLive do
   defp replay_events_for_round(_game_state, _selected_round), do: []
 
   defp replay_control_class do
-    "inline-flex min-h-8 items-center justify-center rounded-md border border-sky-200/40 bg-stone-950 px-2 text-xs font-black text-sky-100 transition hover:border-sky-100 hover:text-white"
+    "inline-flex min-h-8 items-center justify-center rounded-md border border-sky-200/35 bg-slate-950 px-2 text-xs font-black text-sky-100 transition duration-150 hover:border-sky-100 hover:bg-slate-900 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-100 disabled:cursor-not-allowed disabled:opacity-45"
   end
 
   defp replay_events_json(payload) do

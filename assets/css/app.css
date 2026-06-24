@@ -210,6 +210,56 @@
     0 0 0.45rem rgba(125, 211, 252, 0.78);
 }
 
+.replay-board-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  pointer-events: none;
+}
+
+.replay-pawn {
+  position: fixed;
+  z-index: 86;
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border: 2px solid rgba(15, 23, 42, 0.92);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #0c0a09;
+  box-shadow:
+    0 0.45rem 0.65rem rgba(0, 0, 0, 0.35),
+    0 0 0.75rem rgba(125, 211, 252, 0.45);
+  transform: translate(-50%, -50%);
+}
+
+.replay-pawn-thief {
+  background: #d6d3d1;
+}
+
+.replay-pawn-detective {
+  background: #fbbf24;
+}
+
+.replay-pawn-red {
+  background: #f87171;
+}
+
+.replay-pawn-blue {
+  background: #60a5fa;
+}
+
+.replay-pawn-green {
+  background: #34d399;
+}
+
+.replay-pawn-yellow {
+  background: #facc15;
+}
+
 @keyframes board-reveal-pop {
   0% {
     transform: scale(0.92);
@@ -350,5 +400,9 @@
   .board-moving-pawn-ghost,
   .board-move-trail-layer {
     display: none;
+  }
+
+  .replay-pawn {
+    transition: none;
   }
 }
