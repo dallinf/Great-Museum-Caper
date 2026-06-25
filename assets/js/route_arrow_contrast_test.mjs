@@ -8,6 +8,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(__dirname, "../css/app.css"), "utf8");
 const routePathArrowRule =
   css.match(/\.route-path-arrow\s*\{(?<body>[\s\S]*?)\}/)?.groups?.body ?? "";
+const replayModePawnLayerRule =
+  css.match(
+    /\.replay-mode-active\s+\[data-board-mark-layer="pawns"\]\s*\{(?<body>[\s\S]*?)\}/
+  )?.groups?.body ?? "";
+const replayModeObjectLayerRule =
+  css.match(
+    /\.replay-mode-active\s+\[data-board-mark-layer="objects"\]\s*\{(?<body>[\s\S]*?)\}/
+  )?.groups?.body ?? "";
 
 test("route arrows use a clean outline without diagonal tip pooling", () => {
   assert.match(routePathArrowRule, /color:\s*#ffffff;/);
@@ -16,4 +24,12 @@ test("route arrows use a clean outline without diagonal tip pooling", () => {
   assert.doesNotMatch(routePathArrowRule, /-1px 1px 0/);
   assert.doesNotMatch(routePathArrowRule, /1px -1px 0/);
   assert.doesNotMatch(routePathArrowRule, /-1px -1px 0/);
+});
+
+test("replay mode hides the live board pawn layer", () => {
+  assert.match(replayModePawnLayerRule, /display:\s*none;/);
+});
+
+test("replay mode hides the live board object layer", () => {
+  assert.match(replayModeObjectLayerRule, /display:\s*none;/);
 });

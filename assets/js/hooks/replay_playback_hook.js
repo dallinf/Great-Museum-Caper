@@ -5,12 +5,23 @@ import {
   replayEventPath,
   replayEventDuration,
   replayFrameActors,
+  replayFrameObjects,
+  replayStartIndex,
   replaceReplayState,
 } from "../replay_playback.js";
 import {pathCellId} from "../board_movement_animation.js";
 
 const pawnClass = event =>
   `replay-pawn replay-pawn-${event.actor_role} replay-pawn-${event.actor_color || "grey"}`;
+
+const pawnText = actor => (actor.actor_role === "thief" ? "T" : "");
+
+const replayObjectKey = object =>
+  `${object.kind}:${object.id || `${object.position.row}-${object.position.col}`}`;
+
+const replayCaption = event => (event.type === "setup" ? "" : event.label || "");
+
+const replayModeButtonActiveClass = "bg-sky-300 text-slate-950 border-sky-200";
 
 const centerOf = element => {
   const rect = element.getBoundingClientRect();
@@ -25,8 +36,16 @@ const ReplayPlaybackHook = {
   mounted() {
     this.replayEventsJSON = this.el.dataset.replayEvents || "[]";
     this.state = initialReplayState(this.eventsFromJSON(this.replayEventsJSON));
+    this.mode = "path";
     this.root = this.controlRoot();
     this.handleControlClick = event => {
+      const modeButton = event.target.closest("[data-replay-mode]");
+
+      if (modeButton && this.root.contains(modeButton)) {
+        this.setMode(modeButton.dataset.replayMode);
+        return;
+      }
+
       const button = event.target.closest("[data-replay-command]");
 
       if (!button || !this.root.contains(button)) {
@@ -48,7 +67,7 @@ const ReplayPlaybackHook = {
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     this.bindControls();
-    this.renderFrame();
+    this.setMode("path");
   },
   updated() {
     this.bindControls();
@@ -67,6 +86,7 @@ const ReplayPlaybackHook = {
   destroyed() {
     this.stop();
     this.clearLayer();
+    this.setBoardReplayMode("path");
     this.root?.removeEventListener("click", this.handleControlClick);
     this.root?.removeEventListener("change", this.handleChange);
   },
@@ -88,6 +108,8 @@ const ReplayPlaybackHook = {
     this.playButton = this.root.querySelector?.("[data-replay-command='play']");
     this.playIcon = this.playButton?.querySelector?.("[data-replay-play-icon]");
     this.pauseIcon = this.playButton?.querySelector?.("[data-replay-pause-icon]");
+    this.pathModeButton = this.root.querySelector?.("[data-replay-mode='path']");
+    this.replayModeButton = this.root.querySelector?.("[data-replay-mode='replay']");
     this.speedInput = this.el.querySelector("[data-replay-speed]");
 
     if (this.speedInput) {
@@ -95,32 +117,52 @@ const ReplayPlaybackHook = {
     }
 
     this.updateControlState();
+    this.updateModeControls();
   },
   command(command) {
     if (command === "play") {
+      this.setMode("replay");
       this.togglePlay();
     } else if (command === "back") {
+      this.setMode("replay");
       this.stop();
       this.state = {...this.state, index: previousReplayIndex(this.state)};
       this.renderFrame();
     } else if (command === "forward") {
+      this.setMode("replay");
       this.stop();
       this.state = {...this.state, index: nextReplayIndex(this.state)};
       this.renderFrame();
     } else if (command === "restart") {
+      this.setMode("replay");
       this.stop();
-      this.state = {...this.state, index: 0};
+      this.state = {...this.state, index: replayStartIndex(this.state.events)};
       this.renderFrame();
     } else if (command === "exit") {
+      this.setMode("path");
+    }
+  },
+  setMode(mode) {
+    const nextMode = mode === "replay" ? "replay" : "path";
+
+    if (nextMode === "path") {
       this.stop();
+      this.mode = "path";
+      this.setBoardReplayMode("path");
       this.clearLayer();
 
       if (this.caption) {
         this.caption.textContent = "";
       }
 
-      this.updateControlState();
+      this.updateModeControls();
+      return;
     }
+
+    this.mode = "replay";
+    this.setBoardReplayMode("replay");
+    this.updateModeControls();
+    this.renderFrame();
   },
   togglePlay() {
     if (this.state.playing) {
@@ -155,6 +197,11 @@ const ReplayPlaybackHook = {
     this.updateControlState();
   },
   renderFrame() {
+    if (this.mode !== "replay") {
+      this.clearLayer();
+      return;
+    }
+
     const event = this.state.events[this.state.index];
 
     if (!event) {
@@ -163,15 +210,70 @@ const ReplayPlaybackHook = {
     }
 
     if (this.caption) {
-      this.caption.textContent = event.label || "";
+      this.caption.textContent = replayCaption(event);
     }
 
-    this.renderPawns(event);
+    this.renderReplayLayer(event);
     this.updateControlState();
   },
-  renderPawns(currentEvent) {
+  renderReplayLayer(currentEvent) {
     const layer = this.layer();
     const actors = replayFrameActors(this.state.events, this.state.index);
+    const objects = replayFrameObjects(
+      this.state.events,
+      this.state.index,
+      this.boardBaselineObjects()
+    );
+    this.renderObjects(layer, objects);
+    this.renderPawns(layer, actors, currentEvent);
+  },
+  boardBaselineObjects() {
+    if (typeof document === "undefined") {
+      return {};
+    }
+
+    return Array.from(
+      document.querySelectorAll("#museum-board [data-board-mark-layer='objects'] [data-board-mark]")
+    ).reduce((objects, mark) => {
+      const object = this.baselineObjectFromMark(mark);
+
+      return object ? {...objects, [replayObjectKey(object)]: object} : objects;
+    }, {});
+  },
+  baselineObjectFromMark(mark) {
+    const cell = mark.closest?.("[id^='cell-']");
+    const match = `${cell?.id || ""}`.match(/^cell-(\d+)-(\d+)$/);
+    const label = `${mark.textContent || ""}`.trim();
+
+    if (!match || !label) {
+      return null;
+    }
+
+    const position = {row: Number.parseInt(match[1], 10), col: Number.parseInt(match[2], 10)};
+
+    if (mark.dataset.boardMark === "painting") {
+      return {
+        id: label,
+        kind: "artwork",
+        label,
+        position,
+        status: "present",
+      };
+    }
+
+    if (mark.dataset.boardMark === "camera") {
+      return {
+        id: label,
+        kind: "camera",
+        label,
+        position,
+        status: "active",
+      };
+    }
+
+    return null;
+  },
+  renderPawns(layer, actors, currentEvent) {
     const actorIds = new Set(Object.keys(actors));
 
     this.cancelAnimations();
@@ -191,6 +293,20 @@ const ReplayPlaybackHook = {
       }
     });
   },
+  renderObjects(layer, objects) {
+    const objectKeys = new Set(Object.keys(objects));
+
+    Object.entries(objects).forEach(([key, object]) => {
+      const marker = this.markerForObject(layer, key, object);
+      this.placeMarker(marker, object.position);
+    });
+
+    layer.querySelectorAll("[data-replay-object-key]").forEach(marker => {
+      if (!objectKeys.has(marker.dataset.replayObjectKey)) {
+        marker.remove();
+      }
+    });
+  },
   markerForActor(layer, actor) {
     const escape =
       typeof CSS !== "undefined" && CSS.escape ? CSS.escape : value => `${value}`.replaceAll('"', '\\"');
@@ -204,7 +320,29 @@ const ReplayPlaybackHook = {
     }
 
     marker.className = pawnClass(actor);
-    marker.textContent = actor.actor_role === "thief" ? "T" : "D";
+    marker.textContent = pawnText(actor);
+    marker.title =
+      actor.actor_role === "thief"
+        ? "Thief"
+        : `${actor.actor_color || "Detective"} detective`;
+
+    return marker;
+  },
+  markerForObject(layer, key, object) {
+    const escape =
+      typeof CSS !== "undefined" && CSS.escape ? CSS.escape : value => `${value}`.replaceAll('"', '\\"');
+    const selector = `[data-replay-object-key="${escape(key)}"]`;
+    let marker = layer.querySelector(selector);
+
+    if (!marker) {
+      marker = document.createElement("span");
+      marker.dataset.replayObjectKey = key;
+      layer.appendChild(marker);
+    }
+
+    marker.className = `replay-object replay-object-${object.kind} replay-object-${object.status}`;
+    marker.textContent = object.kind === "camera" ? object.label.replace("Camera ", "C") : object.label;
+    marker.title = `${object.label} ${object.status}`;
 
     return marker;
   },
@@ -265,6 +403,29 @@ const ReplayPlaybackHook = {
     this.playButton.setAttribute("aria-pressed", this.state.playing ? "true" : "false");
     this.playIcon?.classList.toggle("hidden", this.state.playing);
     this.pauseIcon?.classList.toggle("hidden", !this.state.playing);
+  },
+  updateModeControls() {
+    [
+      [this.pathModeButton, "path"],
+      [this.replayModeButton, "replay"],
+    ].forEach(([button, mode]) => {
+      if (!button) {
+        return;
+      }
+
+      const active = this.mode === mode;
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      replayModeButtonActiveClass.split(" ").forEach(token => {
+        button.classList.toggle(token, active);
+      });
+    });
+  },
+  setBoardReplayMode(mode) {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    document.getElementById("museum-board")?.classList.toggle("replay-mode-active", mode === "replay");
   },
   layer() {
     if (!this.replayLayer) {

@@ -211,6 +211,27 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert new_state.painting_labels[{1, 4}] == "A1"
     end
 
+    test "placing painting records replay artwork state" do
+      state = painting_setup_state()
+
+      assert {:ok, state} = Rules.place_painting(state, {1, 4})
+
+      assert [
+               %{
+                 type: :artwork,
+                 actor_id: "museum",
+                 actor_role: :museum,
+                 object_id: "A1",
+                 object_label: "A1",
+                 path: [{1, 4}],
+                 from: {1, 4},
+                 to: {1, 4},
+                 result: :present,
+                 label: nil
+               }
+             ] = state.replay_events
+    end
+
     test "rejects painting in corridor (hall)" do
       state = painting_setup_state()
       assert {:error, :invalid_placement} = Rules.place_painting(state, {3, 5})
@@ -346,6 +367,27 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert new_state.cameras[1] == %{pos: {4, 6}, status: :active}
     end
 
+    test "placing camera records replay camera state" do
+      state = %{State.new_game(@players) | setup_step: :cameras}
+
+      assert {:ok, state} = Rules.place_camera(state, 1, {4, 6})
+
+      assert [
+               %{
+                 type: :camera,
+                 actor_id: "museum",
+                 actor_role: :museum,
+                 object_id: "1",
+                 object_label: "Camera 1",
+                 path: [{4, 6}],
+                 from: {4, 6},
+                 to: {4, 6},
+                 result: :active,
+                 label: nil
+               }
+             ] = state.replay_events
+    end
+
     test "rejects camera on already-occupied cell" do
       state = %{State.new_game(@players) | setup_step: :cameras}
       {:ok, state} = Rules.place_camera(state, 1, {4, 6})
@@ -414,7 +456,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
                  path: [{1, 4}],
                  from: {1, 4},
                  to: {1, 4},
-                 label: "Det1 started at 1-4."
+                 label: nil
                },
                %{
                  type: :setup,
@@ -423,7 +465,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
                  path: [{7, 1}],
                  from: {7, 1},
                  to: {7, 1},
-                 label: "Det2 started at 7-1."
+                 label: nil
                }
              ] = state.replay_events
     end
@@ -578,11 +620,40 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert new_state.cameras[1].status == :disabled
     end
 
+    test "landing on camera records replay disabled state" do
+      state = %{
+        base_state()
+        | cameras: %{1 => %{pos: {3, 7}, status: :active}, 2 => nil, 3 => nil, 4 => nil}
+      }
+
+      assert {:ok, state} = Rules.move_thief(state, {3, 7})
+
+      assert Enum.any?(state.replay_events, fn event ->
+               event.type == :camera and event.object_id == "1" and event.result == :disabled and
+                 event.to == {3, 7}
+             end)
+    end
+
     test "landing on painting sets pending_steal" do
       state = %{base_state() | paintings: %{{3, 7} => :present}}
       {:ok, new_state} = Rules.move_thief(state, {3, 7})
       assert new_state.pending_steal == {3, 7}
       assert new_state.paintings[{3, 7}] == :targeted
+    end
+
+    test "landing on painting records replay targeted artwork state" do
+      state = %{
+        base_state()
+        | paintings: %{{3, 7} => :present},
+          painting_labels: %{{3, 7} => "A2"}
+      }
+
+      assert {:ok, state} = Rules.move_thief(state, {3, 7})
+
+      assert Enum.any?(state.replay_events, fn event ->
+               event.type == :artwork and event.object_id == "A2" and event.result == :targeted and
+                 event.to == {3, 7}
+             end)
     end
 
     test "thief turns off power only after ending turn on power room" do

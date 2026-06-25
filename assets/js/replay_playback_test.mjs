@@ -10,6 +10,7 @@ import {
   replayEventDuration,
   replayFrameActors,
   replaceReplayState,
+  replayFrameObjects,
 } from "./replay_playback.js";
 
 const events = [
@@ -18,10 +19,54 @@ const events = [
   {type: "lock_check", path: "6-4"},
 ];
 
+const eventsWithSetup = [
+  {
+    type: "setup",
+    actor_id: "player-dad:detective-1",
+    actor_role: "detective",
+    actor_color: "purple",
+    path: "7-6",
+    label: "Unknown player started at 7-6.",
+  },
+  {
+    type: "setup",
+    actor_id: "player-dad:detective-2",
+    actor_role: "detective",
+    actor_color: "purple",
+    path: "2-7",
+    label: "Unknown player started at 2-7.",
+  },
+  {
+    type: "enter",
+    actor_id: "player-russ",
+    actor_role: "thief",
+    actor_color: "grey",
+    path: "4-1",
+    label: "Russ entered through W4.",
+  },
+  {
+    type: "move",
+    actor_id: "player-russ",
+    actor_role: "thief",
+    actor_color: "grey",
+    path: "4-1 3-1",
+    label: "Russ moved 1 space.",
+  },
+];
+
 test("initialReplayState starts paused at the first event", () => {
   assert.deepEqual(initialReplayState(events), {
     events,
     index: 0,
+    playing: false,
+    speed: 1,
+  });
+});
+
+test("initialReplayState skips setup events for playback", () => {
+  assert.deepEqual(initialReplayState(eventsWithSetup), {
+    events: eventsWithSetup,
+    index: 2,
     playing: false,
     speed: 1,
   });
@@ -34,6 +79,14 @@ test("nextReplayIndex stops at the final event", () => {
   assert.equal(nextReplayIndex({...state, index: 2}), 2);
 });
 
+test("nextReplayIndex and previousReplayIndex skip setup events", () => {
+  const state = initialReplayState(eventsWithSetup);
+
+  assert.equal(previousReplayIndex({...state, index: 2}), 2);
+  assert.equal(nextReplayIndex({...state, index: 0}), 2);
+  assert.equal(nextReplayIndex({...state, index: 2}), 3);
+});
+
 test("previousReplayIndex stops at the first event", () => {
   const state = {...initialReplayState(events), index: 1};
 
@@ -42,19 +95,22 @@ test("previousReplayIndex stops at the first event", () => {
 });
 
 test("replayEventDuration scales movement duration by speed", () => {
-  assert.equal(replayEventDuration(events[1], 1), 240);
-  assert.equal(replayEventDuration(events[1], 2), 120);
-  assert.equal(replayEventDuration(events[1], 0.5), 480);
-  assert.equal(replayEventDuration(events[2], 1), 700);
+  assert.equal(replayEventDuration(events[1], 1), 480);
+  assert.equal(replayEventDuration(events[1], 2), 240);
+  assert.equal(replayEventDuration(events[1], 0.5), 960);
+  assert.equal(replayEventDuration(events[2], 1), 1400);
 });
 
 test("replaceReplayState resets playback while preserving selected speed", () => {
-  const nextEvents = [{type: "move", path: "1-1 1-2"}];
+  const nextEvents = [
+    {type: "setup", actor_role: "detective", path: "1-1"},
+    {type: "move", path: "1-1 1-2"},
+  ];
   const state = {...initialReplayState(events), index: 2, playing: true, speed: 2};
 
   assert.deepEqual(replaceReplayState(state, nextEvents), {
     events: nextEvents,
-    index: 0,
+    index: 1,
     playing: false,
     speed: 2,
   });
@@ -125,6 +181,21 @@ test("replayFrameActors preserves every actor position through the event timelin
     },
   ];
 
+  assert.deepEqual(replayFrameActors(actorEvents, 0), {
+    d1: {
+      actor_id: "d1",
+      actor_role: "detective",
+      actor_color: "red",
+      position: {row: 3, col: 9},
+    },
+    d2: {
+      actor_id: "d2",
+      actor_role: "detective",
+      actor_color: "blue",
+      position: {row: 9, col: 5},
+    },
+  });
+
   assert.deepEqual(replayFrameActors(actorEvents, 2), {
     d1: {
       actor_id: "d1",
@@ -151,10 +222,168 @@ test("replayFrameActors preserves every actor position through the event timelin
   assert.deepEqual(replayFrameActors(actorEvents, 3).t.position, {row: 6, col: 2});
 });
 
+test("replayFrameActors normalizes controlled detective pawn colors", () => {
+  const actorEvents = [
+    {
+      type: "setup",
+      actor_id: "bob:detective-1",
+      actor_role: "detective",
+      actor_color: "purple",
+      path: "3-9",
+      from: "3-9",
+      to: "3-9",
+    },
+    {
+      type: "setup",
+      actor_id: "bob:detective-2",
+      actor_role: "detective",
+      actor_color: "purple",
+      path: "9-5",
+      from: "9-5",
+      to: "9-5",
+    },
+  ];
+
+  assert.deepEqual(replayFrameActors(actorEvents, 0), {
+    "bob:detective-1": {
+      actor_id: "bob:detective-1",
+      actor_role: "detective",
+      actor_color: "purple",
+      position: {row: 3, col: 9},
+    },
+    "bob:detective-2": {
+      actor_id: "bob:detective-2",
+      actor_role: "detective",
+      actor_color: "green",
+      position: {row: 9, col: 5},
+    },
+  });
+});
+
+test("replayFrameObjects keeps camera and artwork state through replay", () => {
+  const objectEvents = [
+    {
+      type: "artwork",
+      object_id: "A1",
+      object_label: "A1",
+      path: "3-7",
+      from: "3-7",
+      to: "3-7",
+      result: "present",
+    },
+    {
+      type: "camera",
+      object_id: "1",
+      object_label: "Camera 1",
+      path: "4-6",
+      from: "4-6",
+      to: "4-6",
+      result: "active",
+    },
+    {
+      type: "artwork",
+      object_id: "A2",
+      path: "5-7",
+      from: "5-7",
+      to: "5-7",
+      result: "present",
+    },
+    {
+      type: "artwork",
+      object_id: "A1",
+      object_label: "A1",
+      path: "3-7",
+      from: "3-7",
+      to: "3-7",
+      result: "targeted",
+    },
+    {
+      type: "camera",
+      object_id: "1",
+      object_label: "Camera 1",
+      path: "4-6",
+      from: "4-6",
+      to: "4-6",
+      result: "disabled",
+    },
+    {
+      type: "steal",
+      actor_id: "t",
+      actor_role: "thief",
+      path: "3-7",
+      from: "3-7",
+      to: "3-7",
+      result: "stolen",
+    },
+  ];
+
+  assert.deepEqual(replayFrameObjects(objectEvents, 0), {
+    "artwork:A1": {
+      id: "A1",
+      kind: "artwork",
+      label: "A1",
+      position: {row: 3, col: 7},
+      status: "present",
+    },
+    "camera:1": {
+      id: "1",
+      kind: "camera",
+      label: "Camera 1",
+      position: {row: 4, col: 6},
+      status: "active",
+    },
+    "artwork:A2": {
+      id: "A2",
+      kind: "artwork",
+      label: "A2",
+      position: {row: 5, col: 7},
+      status: "present",
+    },
+  });
+
+  assert.equal(replayFrameObjects(objectEvents, 4)["artwork:A1"].status, "targeted");
+  assert.equal(replayFrameObjects(objectEvents, 4)["camera:1"].status, "disabled");
+  assert.equal(replayFrameObjects(objectEvents, 5)["artwork:A1"].status, "removed");
+});
+
 const buildHookFixture = replayEventsJSON => {
   const listeners = {};
   const caption = {textContent: ""};
   const speedInput = {value: "1"};
+  const modeButtons = {
+    path: {
+      attributes: {},
+      classList: {
+        values: new Set(),
+        toggle(token, force) {
+          if (force) {
+            this.values.add(token);
+          } else {
+            this.values.delete(token);
+          }
+        },
+      },
+      setAttribute(name, value) {
+        this.attributes[name] = value;
+      },
+    },
+    replay: {
+      attributes: {},
+      classList: {
+        values: new Set(),
+        toggle(token, force) {
+          if (force) {
+            this.values.add(token);
+          } else {
+            this.values.delete(token);
+          }
+        },
+      },
+      setAttribute(name, value) {
+        this.attributes[name] = value;
+      },
+    },
+  };
   const playIcon = {
     classList: {
       values: new Set(),
@@ -251,7 +480,16 @@ const buildHookFixture = replayEventsJSON => {
       return Boolean(element?.isReplayControl);
     },
     querySelector(selector) {
-      return selector === "[data-replay-command='play']" ? playButton : null;
+      if (selector === "[data-replay-command='play']") {
+        return playButton;
+      }
+
+      const modeMatch = selector.match(/\[data-replay-mode='(path|replay)'\]/);
+      if (modeMatch) {
+        return modeButtons[modeMatch[1]];
+      }
+
+      return null;
     },
   };
   const el = {
@@ -281,7 +519,7 @@ const buildHookFixture = replayEventsJSON => {
     },
   };
 
-  return {caption, hook, listeners, pauseIcon, playButton, playIcon, root, speedInput};
+  return {caption, hook, listeners, modeButtons, pauseIcon, playButton, playIcon, root, speedInput};
 };
 
 test("ReplayPlaybackHook binds replay commands from the surrounding replay panel", () => {
@@ -315,7 +553,7 @@ test("ReplayPlaybackHook reloads replay events on LiveView update and keeps spee
 
   hook.updated();
 
-  assert.equal(hook.renderFrameCalls, 2);
+  assert.equal(hook.renderFrameCalls, 1);
   assert.deepEqual(hook.state, {
     events: nextEvents,
     index: 0,
@@ -340,4 +578,141 @@ test("ReplayPlaybackHook updates the visible play icon state when playback toggl
   assert.equal(playButton.attributes["aria-pressed"], "true");
   assert.equal(playIcon.classList.contains("hidden"), true);
   assert.equal(pauseIcon.classList.contains("hidden"), false);
+});
+
+test("ReplayPlaybackHook starts in finished path mode and switches into replay mode", () => {
+  const {hook, listeners, modeButtons} = buildHookFixture(JSON.stringify(events));
+  let cleared = false;
+  let rendered = false;
+
+  hook.clearLayer = () => {
+    cleared = true;
+  };
+  hook.renderFrame = () => {
+    rendered = true;
+  };
+  hook.setBoardReplayMode = mode => {
+    hook.lastBoardMode = mode;
+  };
+
+  hook.mounted();
+
+  assert.equal(hook.mode, "path");
+  assert.equal(hook.lastBoardMode, "path");
+  assert.equal(cleared, true);
+  assert.equal(modeButtons.path.attributes["aria-pressed"], "true");
+
+  listeners.click({
+    target: {
+      isReplayControl: true,
+      dataset: {replayMode: "replay"},
+      closest(selector) {
+        return selector === "[data-replay-mode]" ? this : null;
+      },
+    },
+  });
+
+  assert.equal(hook.mode, "replay");
+  assert.equal(hook.lastBoardMode, "replay");
+  assert.equal(rendered, true);
+  assert.equal(modeButtons.replay.attributes["aria-pressed"], "true");
+});
+
+test("ReplayPlaybackHook restarts at the first playable replay event", () => {
+  const {hook} = buildHookFixture(JSON.stringify(eventsWithSetup));
+
+  hook.renderFrame = () => {};
+  hook.mounted();
+  hook.state = {...hook.state, index: 3};
+
+  hook.command("restart");
+
+  assert.equal(hook.state.index, 2);
+});
+
+test("ReplayPlaybackHook reads board object marks as active replay baseline", () => {
+  const {hook} = buildHookFixture(JSON.stringify(events));
+  const originalDocument = globalThis.document;
+  const paintingMark = {
+    dataset: {boardMark: "painting", markStatus: "removed"},
+    textContent: "A4",
+    closest(selector) {
+      return selector === "[id^='cell-']" ? {id: "cell-3-3"} : null;
+    },
+  };
+  const cameraMark = {
+    dataset: {boardMark: "camera", markStatus: "disabled"},
+    textContent: "C2",
+    closest(selector) {
+      return selector === "[id^='cell-']" ? {id: "cell-4-6"} : null;
+    },
+  };
+
+  globalThis.document = {
+    querySelectorAll(selector) {
+      assert.equal(selector, "#museum-board [data-board-mark-layer='objects'] [data-board-mark]");
+      return [paintingMark, cameraMark];
+    },
+  };
+
+  try {
+    assert.deepEqual(hook.boardBaselineObjects(), {
+      "artwork:A4": {
+        id: "A4",
+        kind: "artwork",
+        label: "A4",
+        position: {row: 3, col: 3},
+        status: "present",
+      },
+      "camera:C2": {
+        id: "C2",
+        kind: "camera",
+        label: "C2",
+        position: {row: 4, col: 6},
+        status: "active",
+      },
+    });
+  } finally {
+    globalThis.document = originalDocument;
+  }
+});
+
+test("ReplayPlaybackHook renders detective replay pawns as color-only dots", () => {
+  const {hook} = buildHookFixture(JSON.stringify(events));
+  const marker = {
+    dataset: {},
+    className: "",
+    textContent: "P",
+    title: "",
+  };
+  const layer = {
+    querySelector() {
+      return null;
+    },
+    appendChild(child) {
+      this.child = child;
+    },
+  };
+  const originalDocument = globalThis.document;
+
+  globalThis.document = {
+    createElement() {
+      return marker;
+    },
+  };
+
+  try {
+    hook.markerForActor(layer, {
+      actor_id: "bob:detective-2",
+      actor_role: "detective",
+      actor_color: "green",
+    });
+  } finally {
+    globalThis.document = originalDocument;
+  }
+
+  assert.equal(layer.child, marker);
+  assert.match(marker.className, /replay-pawn-green/);
+  assert.equal(marker.textContent, "");
+  assert.equal(marker.title, "green detective");
 });

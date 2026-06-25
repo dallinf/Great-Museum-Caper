@@ -1236,14 +1236,6 @@ defmodule MuseumCaperWeb.GameLive do
         <h3 class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-sky-100/90">
           Replay
         </h3>
-        <button
-          id="replay-round-button"
-          type="button"
-          data-replay-command="restart"
-          class="inline-flex min-h-8 items-center justify-center rounded-md border border-sky-200/40 bg-sky-300 px-2.5 py-1 text-xs font-black text-slate-950 transition duration-150 hover:bg-sky-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-100"
-        >
-          Replay round
-        </button>
       </div>
       <div
         id="replay-playback"
@@ -1253,6 +1245,27 @@ defmodule MuseumCaperWeb.GameLive do
         data-replay-event-count={length(@replay_payload)}
         class="space-y-2.5"
       >
+        <div
+          id="replay-review-mode-toggle"
+          class="grid grid-cols-2 gap-1 rounded-md border border-sky-200/25 bg-slate-950 p-1"
+        >
+          <button
+            type="button"
+            data-replay-mode="path"
+            aria-pressed="true"
+            class="min-h-8 rounded px-2 text-xs font-black text-sky-100 transition hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-100"
+          >
+            Finished path
+          </button>
+          <button
+            type="button"
+            data-replay-mode="replay"
+            aria-pressed="false"
+            class="min-h-8 rounded px-2 text-xs font-black text-sky-100 transition hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-100"
+          >
+            Replay
+          </button>
+        </div>
         <p
           data-replay-caption
           class="min-h-5 text-sm font-semibold leading-5 text-sky-50/95"
@@ -1290,11 +1303,11 @@ defmodule MuseumCaperWeb.GameLive do
           </button>
           <button
             type="button"
-            aria-label="Exit replay"
-            data-replay-command="exit"
+            aria-label="Restart replay"
+            data-replay-command="restart"
             class={replay_control_class()}
           >
-            Exit replay
+            <.icon name="hero-arrow-path" class="size-4" />
           </button>
           <select
             aria-label="Replay speed"
@@ -3121,21 +3134,11 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
-  defp mark_class({:painting, _label, :present}),
-    do: "rounded bg-amber-900 px-1 py-0.5 text-[0.58rem] font-black text-amber-100"
+  defp mark_class({:painting, _label, status}),
+    do: object_mark_class("artwork", status)
 
-  defp mark_class({:painting, _label, :targeted}),
-    do: "rounded bg-rose-800 px-1 py-0.5 text-[0.58rem] font-black text-rose-100"
-
-  defp mark_class({:painting, _label, :removed}),
-    do:
-      "rounded bg-zinc-500 px-1 py-0.5 text-[0.58rem] font-black text-stone-950 line-through decoration-2"
-
-  defp mark_class({:camera, _id, :disabled}),
-    do: "rounded bg-red-700 px-1 py-0.5 text-[0.58rem] font-black text-red-50"
-
-  defp mark_class({:camera, _id, _status}),
-    do: "rounded bg-sky-900 px-1 py-0.5 text-[0.58rem] font-black text-sky-100"
+  defp mark_class({:camera, _id, status}),
+    do: object_mark_class("camera", status)
 
   defp mark_class({:detective, _id, color}),
     do: pawn_mark_class(color)
@@ -3145,6 +3148,10 @@ defmodule MuseumCaperWeb.GameLive do
   defp mark_class(_),
     do:
       "max-w-full truncate rounded bg-emerald-900 px-1 py-0.5 text-[0.54rem] font-black text-emerald-100"
+
+  defp object_mark_class(kind, status) do
+    "board-object-mark board-object-mark-#{kind} board-object-mark-#{status}"
+  end
 
   defp mark_label({:painting, label, :targeted}), do: "#{label}*"
   defp mark_label({:painting, label, _status}), do: label

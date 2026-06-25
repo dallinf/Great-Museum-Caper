@@ -779,7 +779,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#cell-3-8 [data-board-mark-stack='stacked'] [data-board-mark-layer='objects'] [data-board-mark='painting'][data-mark-status='present']",
+             "#cell-3-8 [data-board-mark-stack='stacked'] [data-board-mark-layer='objects'] [data-board-mark='painting'][data-mark-status='present'].board-object-mark.board-object-mark-artwork.board-object-mark-present",
              "A7"
            )
 
@@ -790,7 +790,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#cell-3-4 [data-board-mark-stack='stacked'] [data-board-mark-layer='objects'] [data-board-mark='camera'][data-mark-status='active']",
+             "#cell-3-4 [data-board-mark-stack='stacked'] [data-board-mark-layer='objects'] [data-board-mark='camera'][data-mark-status='active'].board-object-mark.board-object-mark-camera.board-object-mark-active",
              "C1"
            )
 
@@ -1201,7 +1201,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              thief_view,
-             "#cell-3-5 [data-board-mark='camera'][data-mark-status='disabled']",
+             "#cell-3-5 [data-board-mark='camera'][data-mark-status='disabled'].board-object-mark.board-object-mark-camera.board-object-mark-disabled",
              "C2"
            )
 
@@ -2490,7 +2490,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     {:ok, alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
 
     assert has_element?(alice_view, "#replay-panel")
-    assert has_element?(alice_view, "#replay-round-button", "Replay round")
+    refute has_element?(alice_view, "#replay-round-button")
     assert has_element?(alice_view, "#replay-playback[phx-hook='ReplayPlaybackHook']")
     assert has_element?(alice_view, "#replay-playback[data-replay-event-count='1']")
 
@@ -2596,8 +2596,11 @@ defmodule MuseumCaperWeb.GameLiveTest do
       |> LazyHTML.from_fragment()
 
     assert replay_document |> LazyHTML.query("#replay-panel") |> Enum.count() == 1
-    assert replay_document |> LazyHTML.query("#replay-round-button") |> Enum.count() == 1
+    assert replay_document |> LazyHTML.query("#replay-round-button") |> Enum.count() == 0
     assert replay_document |> LazyHTML.query("#replay-playback") |> Enum.count() == 1
+
+    assert replay_document |> LazyHTML.query("[data-replay-command='restart']") |> Enum.count() ==
+             1
   end
 
   test "replay playback surface includes accessible controls and speed selector", %{
@@ -2646,6 +2649,18 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
+             "#replay-panel [data-replay-mode='path'][aria-pressed='true']",
+             "Finished path"
+           )
+
+    assert has_element?(
+             alice_view,
+             "#replay-panel [data-replay-mode='replay'][aria-pressed='false']",
+             "Replay"
+           )
+
+    assert has_element?(
+             alice_view,
              "#replay-playback [data-replay-command='back'][aria-label='Step back']"
            )
 
@@ -2661,9 +2676,10 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#replay-playback [data-replay-command='exit'][aria-label='Exit replay']",
-             "Exit replay"
+             "#replay-playback [data-replay-command='restart'][aria-label='Restart replay']"
            )
+
+    refute has_element?(alice_view, "#replay-playback [data-replay-command='exit']")
 
     assert has_element?(
              alice_view,
@@ -3061,7 +3077,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              thief_view,
-             "#cell-3-7 [data-board-mark='painting'][data-mark-status='targeted']",
+             "#cell-3-7 [data-board-mark='painting'][data-mark-status='targeted'].board-object-mark.board-object-mark-artwork.board-object-mark-targeted",
              "A4*"
            )
 
@@ -3094,7 +3110,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#cell-3-7 [data-board-mark='painting'][data-mark-status='removed']",
+             "#cell-3-7 [data-board-mark='painting'][data-mark-status='removed'].board-object-mark.board-object-mark-artwork.board-object-mark-removed",
              "A4"
            )
 

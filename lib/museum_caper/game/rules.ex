@@ -28,7 +28,12 @@ defmodule MuseumCaper.Game.Rules do
       painting_labels = Map.put(state.painting_labels, pos, next_painting_label(state))
 
       with :ok <- validate_painting_color_coverage(paintings) do
-        state = %{state | paintings: paintings, painting_labels: painting_labels}
+        label = Map.fetch!(painting_labels, pos)
+
+        state =
+          %{state | paintings: paintings, painting_labels: painting_labels}
+          |> append_object_replay_event(:artwork, label, label, pos, :present, nil)
+
         state = if map_size(paintings) >= 9, do: %{state | setup_step: :cameras}, else: state
         {:ok, state}
       end
@@ -85,11 +90,39 @@ defmodule MuseumCaper.Game.Rules do
     if index == nil, do: "artwork", else: "A#{index + 1}"
   end
 
+  defp append_object_replay_event(state, type, object_id, object_label, pos, result, label) do
+    Replay.append_event(state, %{
+      type: type,
+      actor_id: "museum",
+      actor_role: :museum,
+      actor_label: "Museum",
+      actor_color: :grey,
+      object_id: object_id,
+      object_label: object_label,
+      path: [pos],
+      from: pos,
+      to: pos,
+      result: result,
+      label: label
+    })
+  end
+
   def place_camera(%State{setup_step: :cameras} = state, camera_id, pos) do
     with true <- Board.camera_placeable_cell?(pos),
          :ok <- validate_unoccupied(state, pos, [:paintings, :cameras, :detective_positions]) do
       cameras = Map.put(state.cameras, camera_id, %{pos: pos, status: :active})
-      state = %{state | cameras: cameras}
+
+      state =
+        %{state | cameras: cameras}
+        |> append_object_replay_event(
+          :camera,
+          Integer.to_string(camera_id),
+          "Camera #{camera_id}",
+          pos,
+          :active,
+          nil
+        )
+
       placed = Enum.count(cameras, fn {_, v} -> v != nil end)
       state = if placed >= 4, do: %{state | setup_step: :pawns}, else: state
       {:ok, state}
@@ -128,7 +161,7 @@ defmodule MuseumCaper.Game.Rules do
           from: pos,
           to: pos,
           result: nil,
-          label: "#{player_name(state, detective_id)} started at #{position_label(pos)}."
+          label: nil
         })
 
       all_placed = Enum.all?(det_positions, fn {_, v} -> v != nil end)
@@ -222,15 +255,29 @@ defmodule MuseumCaper.Game.Rules do
 
   defp check_camera(state, pos) do
     case Enum.find(state.cameras, fn {_, v} -> v && v.pos == pos && v.status == :active end) do
-      {id, cam} -> %{state | cameras: Map.put(state.cameras, id, %{cam | status: :disabled})}
-      nil -> state
+      {id, cam} ->
+        %{state | cameras: Map.put(state.cameras, id, %{cam | status: :disabled})}
+        |> append_object_replay_event(
+          :camera,
+          Integer.to_string(id),
+          "Camera #{id}",
+          pos,
+          :disabled,
+          "Camera #{id} was disabled."
+        )
+
+      nil ->
+        state
     end
   end
 
   defp check_painting(state, pos) do
     case state.paintings[pos] do
       :present ->
+        label = painting_label(state, pos)
+
         %{state | paintings: Map.put(state.paintings, pos, :targeted), pending_steal: pos}
+        |> append_object_replay_event(:artwork, label, label, pos, :targeted, nil)
 
       _ ->
         state
@@ -253,6 +300,8 @@ defmodule MuseumCaper.Game.Rules do
       type: :steal,
       actor_id: state.thief_player_id,
       actor_role: :thief,
+      object_id: label,
+      object_label: label,
       path: [pos],
       from: pos,
       to: pos,
@@ -827,8 +876,6 @@ defmodule MuseumCaper.Game.Rules do
 
   defp exit_path(from, to) when from == to, do: [to]
   defp exit_path(from, to), do: [from, to]
-
-  defp position_label({row, col}), do: "#{row}-#{col}"
 
   defp put_round_end_replay_event(state, outcome, reason) do
     Replay.append_event(state, %{

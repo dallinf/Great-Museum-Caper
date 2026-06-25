@@ -8,6 +8,11 @@ defmodule MuseumCaper.Game.ReplayTest do
     "d" => %{name: "Alice", role: :detective, color: :red}
   }
 
+  @two_player_players %{
+    "alice" => %{name: "Alice", role: :thief, color: :grey},
+    "bob" => %{name: "Bob", role: :detective, color: :red}
+  }
+
   test "append_event fills stable replay metadata" do
     state =
       @players
@@ -125,5 +130,70 @@ defmodule MuseumCaper.Game.ReplayTest do
     }
 
     assert [%{actor_color: "grey"}] = Replay.payload_events([historical_event], state)
+  end
+
+  test "append_event uses controlled detective pawn colors" do
+    state =
+      State.new_game(@two_player_players, ["alice", "bob"], "alice", game_mode: :full)
+
+    state =
+      Replay.append_event(state, %{
+        type: :setup,
+        actor_id: "bob:detective-1",
+        actor_role: :detective,
+        path: [{3, 9}],
+        from: {3, 9},
+        to: {3, 9},
+        result: nil,
+        label: nil
+      })
+
+    state =
+      Replay.append_event(state, %{
+        type: :setup,
+        actor_id: "bob:detective-2",
+        actor_role: :detective,
+        path: [{9, 5}],
+        from: {9, 5},
+        to: {9, 5},
+        result: nil,
+        label: nil
+      })
+
+    assert [
+             %{actor_id: "bob:detective-1", actor_color: "red"},
+             %{actor_id: "bob:detective-2", actor_color: "purple"}
+           ] = state.replay_events
+  end
+
+  test "payload_events includes replay object metadata" do
+    state =
+      @players
+      |> State.new_game(["t", "d"], "t", game_mode: :full)
+      |> Replay.append_event(%{
+        type: :artwork,
+        actor_id: "museum",
+        actor_role: :museum,
+        actor_label: "Museum",
+        actor_color: :grey,
+        object_id: "A1",
+        object_label: "A1",
+        path: [{3, 7}],
+        from: {3, 7},
+        to: {3, 7},
+        result: :present,
+        label: nil
+      })
+
+    assert [
+             %{
+               type: "artwork",
+               actor_id: "museum",
+               actor_role: "museum",
+               object_id: "A1",
+               object_label: "A1",
+               result: "present"
+             }
+           ] = Replay.payload_events(state.replay_events, state)
   end
 end

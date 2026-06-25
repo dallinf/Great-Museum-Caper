@@ -81,6 +81,8 @@ defmodule MuseumCaper.Game.Replay do
       actor_label: event.actor_label,
       actor_color:
         PawnColors.to_param(Map.get(event, :actor_color) || actor_color(state, event.actor_id)),
+      object_id: Map.get(event, :object_id),
+      object_label: Map.get(event, :object_label),
       type: Atom.to_string(event.type),
       path: position_path(event.path),
       from: position_key(event.from),
@@ -100,11 +102,46 @@ defmodule MuseumCaper.Game.Replay do
   end
 
   defp actor_color(state, actor_id) do
-    player_id = Map.get(state.detective_controllers, actor_id, actor_id)
+    player_id = controller_player_id(state, actor_id)
 
     case Map.get(state.players, player_id) do
-      %{color: color} -> PawnColors.to_param(color)
+      %{color: color} -> detective_or_player_color(state, actor_id, player_id, color)
       nil -> "grey"
+    end
+  end
+
+  defp controller_player_id(state, actor_id) do
+    Map.get(state.detective_controllers, actor_id, actor_id)
+  end
+
+  defp detective_or_player_color(state, actor_id, player_id, color) do
+    if Map.has_key?(state.detective_positions, actor_id) do
+      controlled_detective_color(state, actor_id, player_id, color)
+    else
+      PawnColors.to_param(color)
+    end
+  end
+
+  defp controlled_detective_color(state, actor_id, player_id, player_color) do
+    index =
+      state.detective_positions
+      |> Map.keys()
+      |> Enum.sort()
+      |> Enum.filter(&(controller_player_id(state, &1) == player_id))
+      |> Enum.find_index(&(&1 == actor_id))
+
+    case index do
+      0 ->
+        PawnColors.to_param(player_color)
+
+      nil ->
+        PawnColors.to_param(player_color)
+
+      index ->
+        PawnColors.all()
+        |> Enum.reject(&(&1 == player_color))
+        |> Enum.at(index - 1, PawnColors.default())
+        |> PawnColors.to_param()
     end
   end
 
