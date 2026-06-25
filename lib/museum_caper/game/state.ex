@@ -38,6 +38,8 @@ defmodule MuseumCaper.Game.State do
             movement_path: [],
             movement_spent: 0,
             thief_history: @empty_thief_history,
+            replay_events: [],
+            turn_index: 0,
             winner: nil,
             game_over_reason: nil
 
@@ -76,6 +78,8 @@ defmodule MuseumCaper.Game.State do
       winning_player_ids: Keyword.get(opts, :winning_player_ids, []),
       game_log: Keyword.get(opts, :game_log, []),
       thief_history: Keyword.get(opts, :thief_history, @empty_thief_history),
+      replay_events: Keyword.get(opts, :replay_events, []),
+      turn_index: Keyword.get(opts, :turn_index, 0),
       thief_player_id: thief_id,
       locks: locks,
       cameras: cameras,

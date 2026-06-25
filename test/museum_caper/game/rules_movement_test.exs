@@ -133,6 +133,24 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.current_turn == "t"
       assert state.turn_actions_remaining == [:move]
     end
+
+    test "entering the museum records a replay entry event" do
+      state = %{State.new_game(@players) | phase: :thief_entry}
+
+      assert {:ok, state} = Rules.enter_museum(state, :exit_w1)
+
+      assert [
+               %{
+                 type: :enter,
+                 actor_id: "t",
+                 actor_role: :thief,
+                 path: [{6, 1}, {6, 2}],
+                 from: {6, 1},
+                 to: {6, 2},
+                 label: "Thief entered through D2."
+               }
+             ] = state.replay_events
+    end
   end
 
   describe "toggle_lock/2" do
@@ -191,6 +209,27 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       {:ok, new_state} = Rules.place_painting(state, {1, 4})
       assert new_state.paintings[{1, 4}] == :present
       assert new_state.painting_labels[{1, 4}] == "A1"
+    end
+
+    test "placing painting records replay artwork state" do
+      state = painting_setup_state()
+
+      assert {:ok, state} = Rules.place_painting(state, {1, 4})
+
+      assert [
+               %{
+                 type: :artwork,
+                 actor_id: "museum",
+                 actor_role: :museum,
+                 object_id: "A1",
+                 object_label: "A1",
+                 path: [{1, 4}],
+                 from: {1, 4},
+                 to: {1, 4},
+                 result: :present,
+                 label: nil
+               }
+             ] = state.replay_events
     end
 
     test "rejects painting in corridor (hall)" do
@@ -328,6 +367,27 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert new_state.cameras[1] == %{pos: {4, 6}, status: :active}
     end
 
+    test "placing camera records replay camera state" do
+      state = %{State.new_game(@players) | setup_step: :cameras}
+
+      assert {:ok, state} = Rules.place_camera(state, 1, {4, 6})
+
+      assert [
+               %{
+                 type: :camera,
+                 actor_id: "museum",
+                 actor_role: :museum,
+                 object_id: "1",
+                 object_label: "Camera 1",
+                 path: [{4, 6}],
+                 from: {4, 6},
+                 to: {4, 6},
+                 result: :active,
+                 label: nil
+               }
+             ] = state.replay_events
+    end
+
     test "rejects camera on already-occupied cell" do
       state = %{State.new_game(@players) | setup_step: :cameras}
       {:ok, state} = Rules.place_camera(state, 1, {4, 6})
@@ -380,6 +440,34 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       state = %{State.new_game(@players) | setup_step: :pawns}
       {:ok, new_state} = Rules.place_detective_pawn(state, "d1", {1, 4})
       assert new_state.detective_positions["d1"] == {1, 4}
+    end
+
+    test "placing detective pawns records replay setup events" do
+      state = %{State.new_game(@players) | setup_step: :pawns}
+
+      assert {:ok, state} = Rules.place_detective_pawn(state, "d1", {1, 4})
+      assert {:ok, state} = Rules.place_detective_pawn(state, "d2", {7, 1})
+
+      assert [
+               %{
+                 type: :setup,
+                 actor_id: "d1",
+                 actor_role: :detective,
+                 path: [{1, 4}],
+                 from: {1, 4},
+                 to: {1, 4},
+                 label: nil
+               },
+               %{
+                 type: :setup,
+                 actor_id: "d2",
+                 actor_role: :detective,
+                 path: [{7, 1}],
+                 from: {7, 1},
+                 to: {7, 1},
+                 label: nil
+               }
+             ] = state.replay_events
     end
 
     test "rejects pawn on painting cell" do
@@ -532,11 +620,40 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert new_state.cameras[1].status == :disabled
     end
 
+    test "landing on camera records replay disabled state" do
+      state = %{
+        base_state()
+        | cameras: %{1 => %{pos: {3, 7}, status: :active}, 2 => nil, 3 => nil, 4 => nil}
+      }
+
+      assert {:ok, state} = Rules.move_thief(state, {3, 7})
+
+      assert Enum.any?(state.replay_events, fn event ->
+               event.type == :camera and event.object_id == "1" and event.result == :disabled and
+                 event.to == {3, 7}
+             end)
+    end
+
     test "landing on painting sets pending_steal" do
       state = %{base_state() | paintings: %{{3, 7} => :present}}
       {:ok, new_state} = Rules.move_thief(state, {3, 7})
       assert new_state.pending_steal == {3, 7}
       assert new_state.paintings[{3, 7}] == :targeted
+    end
+
+    test "landing on painting records replay targeted artwork state" do
+      state = %{
+        base_state()
+        | paintings: %{{3, 7} => :present},
+          painting_labels: %{{3, 7} => "A2"}
+      }
+
+      assert {:ok, state} = Rules.move_thief(state, {3, 7})
+
+      assert Enum.any?(state.replay_events, fn event ->
+               event.type == :artwork and event.object_id == "A2" and event.result == :targeted and
+                 event.to == {3, 7}
+             end)
     end
 
     test "thief turns off power only after ending turn on power room" do
@@ -693,6 +810,31 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.thief_history.exit == nil
     end
 
+    test "locked escape records a lock check but not an escape event" do
+      state = %{
+        base_state()
+        | current_turn: "t",
+          turn_order: ["t", "d1", "t", "d2"],
+          thief_position: {1, 5},
+          locks: Map.put(base_state().locks, :window_1_5, :locked)
+      }
+
+      assert {:ok, :locked, state} = Rules.try_escape(state, :window_1_5)
+
+      assert [
+               %{
+                 type: :lock_check,
+                 actor_id: "t",
+                 result: :locked,
+                 to: {1, 5},
+                 label: "Thief checked the W1 lock. It was locked."
+               }
+             ] =
+               state.replay_events
+
+      refute Enum.any?(state.replay_events, &(&1.type == :escape))
+    end
+
     test "full game escape records the thief score and pauses for round review" do
       state =
         full_round_state("alice", 1)
@@ -725,6 +867,66 @@ defmodule MuseumCaper.Game.RulesMovementTest do
              ] = state.round_results
     end
 
+    test "successful full game escape stores replay events on the round result" do
+      state =
+        full_round_state("alice", 1)
+        |> Map.merge(%{
+          current_turn: "alice",
+          thief_position: {1, 5},
+          stolen_count: 2,
+          locks: Map.put(base_state().locks, :window_1_5, :open),
+          replay_events: [
+            %{
+              id: 1,
+              round_number: 1,
+              turn_index: 0,
+              actor_id: "alice",
+              actor_role: :thief,
+              actor_label: "Alice",
+              type: :enter,
+              path: [{1, 5}],
+              from: {1, 5},
+              to: {1, 5},
+              result: nil,
+              label: "Alice entered through W1."
+            }
+          ]
+        })
+
+      assert {:ok, :escaped, state} = Rules.try_escape(state, :window_1_5)
+
+      assert [%{replay_events: events}] = state.round_results
+      assert Enum.any?(events, &(&1.type == :lock_check and &1.result == :open))
+
+      assert Enum.any?(
+               events,
+               &(&1.type == :lock_check and &1.label == "Alice checked the W1 lock. It was open.")
+             )
+
+      assert Enum.any?(events, &(&1.type == :escape and &1.to == {1, 5}))
+      assert Enum.any?(events, &(&1.type == :round_end and &1.result == :escaped))
+    end
+
+    test "successful door escape records a path to the visible exterior door cell" do
+      state =
+        full_round_state("alice", 1)
+        |> Map.merge(%{
+          current_turn: "alice",
+          thief_position: {10, 6},
+          stolen_count: 2,
+          locks: Map.put(base_state().locks, :exit_s1, :open)
+        })
+
+      assert {:ok, :escaped, state} = Rules.try_escape(state, :exit_s1)
+
+      assert [%{replay_events: events}] = state.round_results
+
+      assert Enum.any?(events, fn event ->
+               event.type == :escape and event.from == {10, 6} and event.to == {11, 6} and
+                 event.path == [{10, 6}, {11, 6}]
+             end)
+    end
+
     test "starting the next round after review rotates to the next thief setup" do
       state =
         full_round_state("alice", 1)
@@ -753,6 +955,31 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.paintings == %{}
       assert state.detective_positions == %{"alice" => nil, "cora" => nil}
       assert state.thief_history == %{entry: nil, exit: nil, moves: []}
+    end
+
+    test "starting the next full round resets replay events and turn index" do
+      state =
+        full_round_state("alice", 1)
+        |> Map.merge(%{
+          phase: :round_review,
+          round_results: [
+            %{
+              round_number: 1,
+              thief_player_id: "alice",
+              stolen_count: 2,
+              outcome: :thief,
+              reason: :escaped,
+              thief_history: %{entry: nil, exit: nil, moves: []},
+              replay_events: [%{id: 1, type: :round_end}]
+            }
+          ],
+          replay_events: [%{id: 1, type: :round_end}],
+          turn_index: 4
+        })
+
+      assert {:ok, state} = Rules.start_next_round(state)
+      assert state.replay_events == []
+      assert state.turn_index == 0
     end
 
     test "starting the next round is rejected outside round review" do
@@ -991,6 +1218,48 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       {:ok, new_state} = Rules.move_detective(state, "d1", {3, 8})
       assert new_state.detective_positions["d1"] == {3, 8}
       assert :move in new_state.turn_actions_remaining
+    end
+
+    test "detective movement records the final replay path for the turn" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          dice: {4, :eye},
+          turn_actions_remaining: [:move],
+          detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}}
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 7})
+
+      assert [
+               %{
+                 type: :move,
+                 actor_id: "d1",
+                 actor_role: :detective,
+                 path: [{3, 9}, {3, 8}, {3, 7}],
+                 from: {3, 9},
+                 to: {3, 7}
+               }
+             ] = state.replay_events
+    end
+
+    test "returning a detective to the turn-start origin clears the replay move event" do
+      state = %{
+        base_state()
+        | current_turn: "d1",
+          dice: {4, :eye},
+          turn_actions_remaining: [:move],
+          detective_positions: %{"d1" => {3, 9}, "d2" => {9, 5}}
+      }
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 8})
+      assert [%{type: :move, actor_id: "d1", path: [{3, 9}, {3, 8}]}] = state.replay_events
+
+      assert {:ok, state} = Rules.move_detective(state, "d1", {3, 9})
+      assert state.detective_positions["d1"] == {3, 9}
+      assert state.movement_path == []
+      assert state.replay_events == []
     end
 
     test "rejects moves onto external door cells" do

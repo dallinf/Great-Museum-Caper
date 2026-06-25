@@ -27,6 +27,7 @@ import topbar from "../vendor/topbar"
 import BoardRevealHook from "./hooks/board_reveal_hook"
 import BoardHook from "./hooks/board_hook"
 import GameAudioPreferenceHook from "./hooks/game_audio_preference_hook"
+import ReplayPlaybackHook from "./hooks/replay_playback_hook"
 import ToastHook from "./hooks/toast_hook"
 import TurnBannerHook from "./hooks/turn_banner_hook"
 
@@ -34,6 +35,7 @@ let Hooks = {}
 Hooks.BoardRevealHook = BoardRevealHook
 Hooks.BoardHook = BoardHook
 Hooks.GameAudioPreferenceHook = GameAudioPreferenceHook
+Hooks.ReplayPlaybackHook = ReplayPlaybackHook
 Hooks.ToastHook = ToastHook
 Hooks.TurnBannerHook = TurnBannerHook
 
