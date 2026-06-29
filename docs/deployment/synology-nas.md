@@ -318,6 +318,172 @@ If your Synology uses the legacy Compose command, use this final restart command
 sudo docker-compose --env-file .env up -d
 ```
 
+## HTTPS Path Proxy Under a Synology Web Station Homepage
+
+Use this setup when Web Station serves the homepage at:
+
+```txt
+https://dallinfrandsen.duckdns.org/
+```
+
+and Museum Caper should live under:
+
+```txt
+https://dallinfrandsen.duckdns.org/museum_caper/
+```
+
+Keep the Museum Caper container exposed only on a NAS host port, such as `4040`, and let Nginx proxy the path prefix to it.
+
+### Container Environment for the Path Prefix
+
+In `/volume1/docker/museum-caper/.env`, use the public HTTPS URL values:
+
+```dotenv
+PHX_HOST=dallinfrandsen.duckdns.org
+HOST_PORT=4040
+PHX_URL_SCHEME=https
+PHX_URL_PORT=443
+PHX_URL_PATH=/museum_caper
+PHX_CHECK_ORIGIN=https://dallinfrandsen.duckdns.org
+```
+
+Then restart the container:
+
+```sh
+cd /volume1/docker/museum-caper
+sudo docker compose --env-file .env up -d
+```
+
+If your Synology uses the legacy Compose command:
+
+```sh
+sudo docker-compose --env-file .env up -d
+```
+
+Confirm the container is reachable from the NAS:
+
+```sh
+curl -I http://127.0.0.1:4040/
+```
+
+### Back Up the Active Nginx Config
+
+Synology spreads Nginx configuration across generated files. Before changing anything, save the merged active config from your local machine:
+
+```sh
+mkdir -p ~/nginx-backups
+
+ssh -t YOUR_USER@dallinfrandsen.duckdns.org \
+  'sudo nginx -T > /tmp/nginx-full.conf'
+
+ssh YOUR_USER@dallinfrandsen.duckdns.org 'cat /tmp/nginx-full.conf' \
+  > ~/nginx-backups/synology-nginx-$(date +%Y%m%d-%H%M%S).conf
+```
+
+If `scp` is needed on this NAS, use legacy mode because the SFTP subsystem may not be enabled:
+
+```sh
+scp -O YOUR_USER@dallinfrandsen.duckdns.org:/tmp/nginx-full.conf \
+  ~/nginx-backups/synology-nginx-$(date +%Y%m%d-%H%M%S).conf
+```
+
+### HTTP to HTTPS Redirect
+
+The working redirect is a separate file:
+
+```txt
+/etc/nginx/sites-enabled/dallinfrandsen-http-redirect.conf
+```
+
+with:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name dallinfrandsen.duckdns.org;
+
+    return 301 https://dallinfrandsen.duckdns.org$request_uri;
+}
+```
+
+This lets plain HTTP requests redirect before Web Station serves the homepage.
+
+### Add the Museum Caper Web Station User Config
+
+Do not edit the generated Web Station portal file directly. In the current working setup, Web Station generated this HTTPS portal:
+
+```txt
+/etc/nginx/sites-enabled/webservice_portal_9d961660-65bd-4742-9d01-3647f71d2d85
+```
+
+That portal includes a generated service config, which includes this user override path:
+
+```txt
+/usr/local/etc/nginx/conf.d/1e7704d7-ca91-47bd-a0e5-dff4dfd36717/user.conf*
+```
+
+If Web Station regenerates the UUID later, find the current `user.conf*` include with:
+
+```sh
+sudo nginx -T > /tmp/nginx-full.conf
+grep -n "dallinfrandsen.duckdns.org\|user.conf" /tmp/nginx-full.conf
+```
+
+Create the current user config file:
+
+```sh
+sudo mkdir -p /usr/local/etc/nginx/conf.d/1e7704d7-ca91-47bd-a0e5-dff4dfd36717
+sudo vi /usr/local/etc/nginx/conf.d/1e7704d7-ca91-47bd-a0e5-dff4dfd36717/user.conf
+```
+
+Put the Museum Caper locations in that file:
+
+```nginx
+location = /museum_caper {
+    return 301 /museum_caper/;
+}
+
+location /museum_caper/ {
+    proxy_pass http://127.0.0.1:4040/;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Port $server_port;
+
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400;
+}
+```
+
+Then test and reload Nginx:
+
+```sh
+sudo nginx -t
+sudo nginx -s reload
+```
+
+Verify from any machine:
+
+```sh
+curl -I http://dallinfrandsen.duckdns.org/museum_caper
+curl -I https://dallinfrandsen.duckdns.org/museum_caper
+curl -I https://dallinfrandsen.duckdns.org/museum_caper/
+```
+
+Expected behavior:
+
+- `http://.../museum_caper` redirects to HTTPS.
+- `https://.../museum_caper` redirects to `/museum_caper/`.
+- `https://.../museum_caper/` proxies to the Phoenix container.
+
+The old file `/etc/nginx/conf.d/www.museum_caper.conf` is still useful as a reference, but Web Station's generated domain portal does not use it for `dallinfrandsen.duckdns.org`. The route must be in the Web Station service `user.conf` include above.
+
 ## HTTPS with Synology Reverse Proxy
 
 For a polished private setup, put Synology's reverse proxy in front of the container.
