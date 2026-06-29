@@ -39,10 +39,6 @@ defmodule MuseumCaperWeb.Layouts do
     default: false,
     doc: "render compact overlay navigation instead of the full application banner"
 
-  attr :recent_result, :string,
-    default: nil,
-    doc: "optional latest result shown in the compact menu"
-
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -94,14 +90,6 @@ defmodule MuseumCaperWeb.Layouts do
               <.icon name="hero-arrow-left" class="size-4" />
               <span>Back to lobby</span>
             </.link>
-          <% end %>
-          <%= if @recent_result do %>
-            <section id="menu-detective-result" class="mt-2 border-t border-stone-800 px-3 py-3">
-              <h2 class="text-xs font-black uppercase tracking-[0.18em] text-stone-400">
-                Recent result
-              </h2>
-              <p class="mt-2 text-sm leading-snug text-stone-200">{@recent_result}</p>
-            </section>
           <% end %>
         </div>
       </details>

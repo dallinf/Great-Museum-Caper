@@ -44,7 +44,10 @@ defmodule MuseumCaperWeb.LobbyLive do
       true ->
         case LobbyServer.create_room(name, player_name) do
           {:ok, game_id} ->
-            {:noreply, push_navigate(socket, to: game_path(game_id, player_name, player_color))}
+            player_id = new_player_id(player_name)
+
+            {:noreply,
+             push_navigate(socket, to: game_path(game_id, player_id, player_name, player_color))}
 
           {:error, :name_taken} ->
             {:noreply, assign(socket, error: "room name already taken")}
@@ -105,7 +108,10 @@ defmodule MuseumCaperWeb.LobbyLive do
         {:noreply, assign(socket, error: "That pawn color is already taken.")}
 
       true ->
-        {:noreply, push_navigate(socket, to: game_path(game_id, player_name, player_color))}
+        player_id = new_player_id(player_name)
+
+        {:noreply,
+         push_navigate(socket, to: game_path(game_id, player_id, player_name, player_color))}
     end
   end
 
@@ -185,7 +191,7 @@ defmodule MuseumCaperWeb.LobbyLive do
               No rooms yet.
             </div>
           <% else %>
-            <div id="room-list" class="mt-6 grid gap-3">
+            <div id="room-list" phx-hook="LobbyRejoinHook" class="mt-6 grid gap-3">
               <%= for room <- @rooms do %>
                 <article
                   id={"room-#{room.game_id}"}
@@ -200,12 +206,24 @@ defmodule MuseumCaperWeb.LobbyLive do
                     </div>
                     <%= cond do %>
                       <% room.phase != :lobby -> %>
-                        <span
-                          data-room-status="locked"
-                          class="rounded-md border border-stone-600 px-4 py-2 text-sm font-bold text-stone-400"
-                        >
-                          In progress
-                        </span>
+                        <div class="flex items-center gap-2">
+                          <span
+                            data-room-status="locked"
+                            class="rounded-md border border-stone-600 px-4 py-2 text-sm font-bold text-stone-400"
+                          >
+                            In progress
+                          </span>
+                          <a
+                            id={"rejoin-#{room.game_id}"}
+                            href={~p"/game/#{room.game_id}"}
+                            data-rejoin-link
+                            data-game-id={room.game_id}
+                            data-room-player-ids={room_player_ids(room)}
+                            class="hidden rounded-md bg-amber-300 px-4 py-2 text-sm font-black text-stone-950 transition hover:bg-amber-200"
+                          >
+                            Rejoin
+                          </a>
+                        </div>
                       <% @joining != room.game_id -> %>
                         <button
                           type="button"
@@ -289,8 +307,8 @@ defmodule MuseumCaperWeb.LobbyLive do
     Enum.find(rooms, &(&1.game_id == game_id))
   end
 
-  defp game_path(game_id, player_name, player_color) do
-    ~p"/game/#{game_id}?#{[player_name: player_name, player_color: player_color]}"
+  defp game_path(game_id, player_id, player_name, player_color) do
+    ~p"/game/#{game_id}?#{[player_id: player_id, player_name: player_name, player_color: player_color]}"
   end
 
   defp ensure_join_form(socket, room) do
@@ -344,6 +362,14 @@ defmodule MuseumCaperWeb.LobbyLive do
 
   defp taken_pawn_colors(_room), do: []
 
+  defp room_player_ids(%{players: players}) when is_map(players) do
+    players
+    |> Map.keys()
+    |> Enum.join(" ")
+  end
+
+  defp room_player_ids(_room), do: ""
+
   defp pawn_color_taken?(room, color) do
     room
     |> taken_pawn_colors()
@@ -354,4 +380,20 @@ defmodule MuseumCaperWeb.LobbyLive do
 
   defp valid_pawn_color?(color),
     do: match?({:ok, color} when color != nil, PawnColors.normalize(color))
+
+  defp new_player_id(player_name) do
+    suffix = :crypto.strong_rand_bytes(9) |> Base.url_encode64(padding: false)
+
+    case player_slug(player_name) do
+      "" -> "player-#{suffix}"
+      slug -> "player-#{slug}-#{suffix}"
+    end
+  end
+
+  defp player_slug(player_name) do
+    player_name
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
+  end
 end

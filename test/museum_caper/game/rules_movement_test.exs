@@ -92,7 +92,14 @@ defmodule MuseumCaper.Game.RulesMovementTest do
     |> Enum.map(fn player_id ->
       role = if player_id == thief_id, do: :thief, else: :detective
       color = if role == :thief, do: :grey, else: :red
-      {player_id, %{name: String.capitalize(player_id), role: role, color: color}}
+
+      {player_id,
+       %{
+         name: String.capitalize(player_id),
+         role: role,
+         color: color,
+         detective_color: :red
+       }}
     end)
     |> Map.new()
   end
@@ -342,7 +349,21 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       refute Map.has_key?(state.paintings, {11, 8})
     end
 
-    test "removes existing painting and returns setup to paintings" do
+    test "removes existing painting during artwork setup" do
+      state = %{
+        State.new_game(@players)
+        | setup_step: :paintings,
+          paintings: %{{1, 4} => :present},
+          painting_labels: %{{1, 4} => "A1"}
+      }
+
+      assert {:ok, new_state} = Rules.remove_painting(state, {1, 4})
+      refute Map.has_key?(new_state.paintings, {1, 4})
+      refute Map.has_key?(new_state.painting_labels, {1, 4})
+      assert new_state.setup_step == :paintings
+    end
+
+    test "rejects stale painting removal after artwork setup advances" do
       state = %{
         State.new_game(@players)
         | setup_step: :cameras,
@@ -353,10 +374,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
             |> Map.new(fn {pos, index} -> {pos, "A#{index}"} end)
       }
 
-      assert {:ok, new_state} = Rules.remove_painting(state, {1, 4})
-      refute Map.has_key?(new_state.paintings, {1, 4})
-      refute Map.has_key?(new_state.painting_labels, {1, 4})
-      assert new_state.setup_step == :paintings
+      assert {:error, :invalid_phase} = Rules.remove_painting(state, {1, 4})
     end
   end
 
@@ -417,7 +435,24 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.setup_step == :pawns
     end
 
-    test "removes existing camera and returns setup to cameras" do
+    test "removes existing camera during camera setup" do
+      state = %{
+        State.new_game(@players)
+        | setup_step: :cameras,
+          cameras: %{
+            1 => %{pos: {4, 6}, status: :active},
+            2 => nil,
+            3 => nil,
+            4 => nil
+          }
+      }
+
+      assert {:ok, new_state} = Rules.remove_camera_at(state, {4, 6})
+      assert new_state.cameras[1] == nil
+      assert new_state.setup_step == :cameras
+    end
+
+    test "rejects stale camera removal after camera setup advances" do
       state = %{
         State.new_game(@players)
         | setup_step: :pawns,
@@ -429,9 +464,7 @@ defmodule MuseumCaper.Game.RulesMovementTest do
           }
       }
 
-      assert {:ok, new_state} = Rules.remove_camera_at(state, {4, 6})
-      assert new_state.cameras[1] == nil
-      assert new_state.setup_step == :cameras
+      assert {:error, :invalid_phase} = Rules.remove_camera_at(state, {4, 6})
     end
   end
 
@@ -610,45 +643,70 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert {:error, :invalid_move} = Rules.move_thief(state, {1, 1})
     end
 
-    test "landing on camera disables it" do
+    test "landing on camera waits to disable it until end turn" do
       state = %{
         base_state()
-        | cameras: %{1 => %{pos: {3, 7}, status: :active}, 2 => nil, 3 => nil, 4 => nil}
+        | current_turn: "t",
+          turn_order: ["t", "d1", "t", "d2"],
+          cameras: %{1 => %{pos: {3, 7}, status: :active}, 2 => nil, 3 => nil, 4 => nil}
       }
 
       {:ok, new_state} = Rules.move_thief(state, {3, 7})
+      assert new_state.cameras[1].status == :active
+
+      {:ok, new_state} = Rules.end_turn(new_state)
       assert new_state.cameras[1].status == :disabled
     end
 
-    test "landing on camera records replay disabled state" do
+    test "landing on camera records replay disabled state on end turn" do
       state = %{
         base_state()
-        | cameras: %{1 => %{pos: {3, 7}, status: :active}, 2 => nil, 3 => nil, 4 => nil}
+        | current_turn: "t",
+          turn_order: ["t", "d1", "t", "d2"],
+          cameras: %{1 => %{pos: {3, 7}, status: :active}, 2 => nil, 3 => nil, 4 => nil}
       }
 
       assert {:ok, state} = Rules.move_thief(state, {3, 7})
+      refute Enum.any?(state.replay_events, &(&1.type == :camera and &1.result == :disabled))
+
+      assert {:ok, state} = Rules.end_turn(state)
 
       assert Enum.any?(state.replay_events, fn event ->
                event.type == :camera and event.object_id == "1" and event.result == :disabled and
-                 event.to == {3, 7}
+                 event.to == {3, 7} and event.label == "C1 was disabled."
              end)
     end
 
-    test "landing on painting sets pending_steal" do
-      state = %{base_state() | paintings: %{{3, 7} => :present}}
+    test "landing on painting waits to target artwork until end turn" do
+      state = %{
+        base_state()
+        | current_turn: "t",
+          turn_order: ["t", "d1", "t", "d2"],
+          paintings: %{{3, 7} => :present}
+      }
+
       {:ok, new_state} = Rules.move_thief(state, {3, 7})
+      assert new_state.pending_steal == nil
+      assert new_state.paintings[{3, 7}] == :present
+
+      {:ok, new_state} = Rules.end_turn(new_state)
       assert new_state.pending_steal == {3, 7}
       assert new_state.paintings[{3, 7}] == :targeted
     end
 
-    test "landing on painting records replay targeted artwork state" do
+    test "landing on painting records replay targeted artwork state on end turn" do
       state = %{
         base_state()
-        | paintings: %{{3, 7} => :present},
+        | current_turn: "t",
+          turn_order: ["t", "d1", "t", "d2"],
+          paintings: %{{3, 7} => :present},
           painting_labels: %{{3, 7} => "A2"}
       }
 
       assert {:ok, state} = Rules.move_thief(state, {3, 7})
+      refute Enum.any?(state.replay_events, &(&1.type == :artwork and &1.result == :targeted))
+
+      assert {:ok, state} = Rules.end_turn(state)
 
       assert Enum.any?(state.replay_events, fn event ->
                event.type == :artwork and event.object_id == "A2" and event.result == :targeted and
@@ -949,6 +1007,9 @@ defmodule MuseumCaper.Game.RulesMovementTest do
       assert state.thief_player_id == "bob"
       assert state.players["bob"].role == :thief
       assert state.players["alice"].role == :detective
+      assert state.players["alice"].color == :red
+      assert state.players["cora"].role == :detective
+      assert state.players["cora"].color == :red
       assert state.round_number == 2
       assert state.artwork_scores["alice"] == 2
       assert state.stolen_count == 0

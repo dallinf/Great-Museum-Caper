@@ -163,10 +163,13 @@ defmodule MuseumCaper.Game.ServerTest do
     assert {:ok, state} = Server.start_game(pid, "alice", shuffle: &Enum.reverse/1)
     assert state.players["cora"].role == :thief
     assert state.players["cora"].color == :grey
+    assert state.players["cora"].detective_color == :yellow
     assert state.players["bob"].role == :detective
     assert state.players["bob"].color == :green
+    assert state.players["bob"].detective_color == :green
     assert state.players["alice"].role == :detective
     assert state.players["alice"].color == :purple
+    assert state.players["alice"].detective_color == :purple
   end
 
   test "start_game preserves the original lobby host" do

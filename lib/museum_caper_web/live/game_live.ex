@@ -13,8 +13,9 @@ defmodule MuseumCaperWeb.GameLive do
         player_name = params |> Map.get("player_name", "") |> String.trim()
         player_color = Map.get(params, "player_color")
         server = {:via, Registry, {MuseumCaper.GameRegistry, game_id}}
-        player_id = player_id_for(player_name, socket.id)
         game_state = Server.get_state(server)
+        player_id = player_id_from_params(params, player_name, socket.id)
+        player_name = current_or_param_player_name(game_state, player_id, player_name)
         join_form_player_color = available_join_pawn_color(game_state, player_id, player_color)
 
         socket =
@@ -269,7 +270,7 @@ defmodule MuseumCaperWeb.GameLive do
         {:noreply, refresh_state(socket, camera_sighting_message(camera_id))}
 
       {:ok, :camera_disabled} ->
-        {:noreply, refresh_state(socket, "That camera was disabled.")}
+        {:noreply, refresh_state(socket, camera_disabled_message(camera_id))}
 
       {:ok, :power_off} ->
         {:noreply, refresh_state(socket, "The power is off, so cameras cannot see.")}
@@ -357,12 +358,23 @@ defmodule MuseumCaperWeb.GameLive do
       flash={@flash}
       back_to_lobby_event={back_to_lobby_event(@game_state)}
       compact={true}
-      recent_result={latest_detective_result(@game_state, @player_id)}
     >
       <div
         id="game-shell"
         class="h-dvh overflow-hidden bg-stone-950 text-stone-100"
       >
+        <%= if claim = player_claim(@game_state, @player_id) do %>
+          <div
+            id="player-claim"
+            phx-hook="PlayerClaimHook"
+            data-game-id={@game_id}
+            data-player-id={@player_id}
+            data-player-name={claim.name}
+            data-player-color={claim.color}
+            hidden
+          >
+          </div>
+        <% end %>
         <div
           id="game-layout"
           class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden p-2 lg:grid-cols-[19rem_minmax(0,1fr)] lg:grid-rows-1 lg:gap-4 lg:p-5"
@@ -572,6 +584,7 @@ defmodule MuseumCaperWeb.GameLive do
                   game_state={@game_state}
                   player_id={@player_id}
                   pending_escape_entry={@pending_escape_entry}
+                  recent_result={latest_detective_result(@game_state, @player_id)}
                 />
               <% :round_review -> %>
                 <.round_review_panel game_state={@game_state} player_id={@player_id} />
@@ -708,8 +721,9 @@ defmodule MuseumCaperWeb.GameLive do
                 id="game-result-toast"
                 phx-hook="ToastHook"
                 data-toast-key={result_toast_key(@game_id, @game_state, latest_result_key)}
+                data-toast-duration="9000"
                 role="status"
-                class="translate-y-2 rounded-lg border border-sky-300/40 bg-stone-950/95 p-3 text-sm text-sky-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-4 md:text-base lg:p-5 lg:text-lg"
+                class="translate-y-2 rounded-lg border border-sky-300/40 bg-stone-950/95 p-4 text-base text-sky-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-5 md:text-lg lg:p-6 lg:text-xl"
               >
                 <span class="block font-semibold">{latest_result}</span>
               </div>
@@ -721,8 +735,9 @@ defmodule MuseumCaperWeb.GameLive do
                 data-toast-key={
                   artwork_reveal_toast_key(@game_id, @game_state, @artwork_reveal_toast)
                 }
+                data-toast-duration="9000"
                 role="status"
-                class="translate-y-2 rounded-lg border border-amber-300/50 bg-stone-950/95 p-3 text-sm font-semibold text-amber-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-4 md:text-base lg:p-5 lg:text-lg"
+                class="translate-y-2 rounded-lg border border-amber-300/50 bg-stone-950/95 p-4 text-base font-semibold text-amber-100 opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition-[opacity,transform] md:p-5 md:text-lg lg:p-6 lg:text-xl"
               >
                 {@artwork_reveal_toast.message}
               </div>
@@ -734,19 +749,19 @@ defmodule MuseumCaperWeb.GameLive do
             id="turn-banner"
             phx-hook="TurnBannerHook"
             data-turn-banner-key={@turn_banner_key}
-            data-turn-banner-duration="3000"
+            data-turn-banner-duration="2200"
             data-turn-banner-chime="loud"
             role="status"
             aria-live="assertive"
-            class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center px-4"
+            class="pointer-events-none fixed inset-x-0 top-3 z-40 flex items-start justify-center px-3 sm:top-4"
           >
             <div
               data-turn-banner-panel
               data-turn-banner-dismissible="true"
-              data-turn-banner-size="massive"
+              data-turn-banner-size="compact"
               tabindex="-1"
               aria-label="Dismiss your turn banner"
-              class="pointer-events-none max-w-full translate-y-4 scale-95 cursor-pointer rounded-lg border-4 border-amber-200 bg-stone-950/90 px-6 py-5 text-center text-[clamp(3rem,18vw,10rem)] font-black uppercase leading-none tracking-normal text-amber-100 opacity-0 shadow-2xl shadow-amber-950/50 backdrop-blur-sm transition-[opacity,transform] duration-200 sm:px-10 sm:py-7"
+              class="pointer-events-none max-w-[min(24rem,calc(100vw-1.5rem))] translate-y-2 scale-95 cursor-pointer rounded-full border border-amber-200/70 bg-stone-950/90 px-4 py-2 text-center text-sm font-black uppercase leading-none text-amber-100 opacity-0 shadow-xl shadow-amber-950/40 backdrop-blur-sm transition-[opacity,transform] duration-200 sm:px-5 sm:py-2.5 sm:text-base"
             >
               Your Turn
             </div>
@@ -861,10 +876,11 @@ defmodule MuseumCaperWeb.GameLive do
   attr :game_state, :map, required: true
   attr :player_id, :string, required: true
   attr :pending_escape_entry, :atom, default: nil
+  attr :recent_result, :string, default: nil
 
   def turn_panel(assigns) do
     ~H"""
-    <%= if turn_panel_visible?(@game_state, @player_id, @pending_escape_entry) do %>
+    <%= if turn_panel_visible?(@game_state, @player_id, @pending_escape_entry) or @recent_result do %>
       <div
         id="turn-panel"
         data-mobile-density="compact"
@@ -872,6 +888,15 @@ defmodule MuseumCaperWeb.GameLive do
       >
         <%= if @game_state.dice do %>
           <.dice_readout dice={@game_state.dice} />
+        <% end %>
+
+        <%= if @recent_result do %>
+          <section
+            id="detective-result-panel"
+            class="rounded-md border border-sky-300/40 bg-sky-300/10 p-2 text-sky-50 shadow-inner shadow-sky-950/30 lg:p-3"
+          >
+            <p class="text-sm font-semibold leading-snug lg:text-base">{@recent_result}</p>
+          </section>
         <% end %>
 
         <.motion_decision_buttons game_state={@game_state} player_id={@player_id} />
@@ -894,7 +919,7 @@ defmodule MuseumCaperWeb.GameLive do
                 "w-full rounded-md border px-3 py-1.5 text-xs font-bold transition lg:py-2 lg:text-sm",
                 if(can_end_turn?,
                   do:
-                    "border-amber-200 bg-amber-300 text-stone-950 shadow-lg shadow-amber-950/30 hover:border-amber-100 hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200",
+                    "end-turn-ready-pulse border-amber-200 bg-amber-300 text-stone-950 shadow-lg shadow-amber-950/30 hover:border-amber-100 hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200",
                   else: "cursor-not-allowed border-stone-700 bg-stone-900 text-stone-500"
                 )
               ]}
@@ -1750,6 +1775,31 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
+  defp player_id_from_params(params, player_name, fallback) do
+    case Map.get(params, "player_id") do
+      player_id when is_binary(player_id) ->
+        player_id = String.trim(player_id)
+
+        if valid_player_id?(player_id) do
+          player_id
+        else
+          player_id_for(player_name, fallback)
+        end
+
+      _ ->
+        player_id_for(player_name, fallback)
+    end
+  end
+
+  defp valid_player_id?(player_id), do: String.match?(player_id, ~r/^[A-Za-z0-9_-]{3,96}$/)
+
+  defp current_or_param_player_name(state, player_id, player_name) do
+    case {player_name, Map.get(state.players, player_id)} do
+      {"", %{name: name}} -> name
+      _ -> player_name
+    end
+  end
+
   defp available_join_pawn_color(state, player_id, requested_color) do
     case PawnColors.normalize(requested_color) do
       {:ok, nil} ->
@@ -1807,6 +1857,17 @@ defmodule MuseumCaperWeb.GameLive do
       {:error, :game_started} -> put_notice(socket, "This game has already started.")
       {:error, :color_taken} -> put_notice(socket, "That pawn color is already taken.")
       {:error, :invalid_color} -> put_notice(socket, "Choose a valid pawn color.")
+    end
+  end
+
+  defp player_claim(state, player_id) do
+    case Map.get(state.players, player_id) do
+      nil ->
+        nil
+
+      player ->
+        color = Map.get(player, :detective_color, player.color)
+        %{name: player.name, color: PawnColors.to_param(color)}
     end
   end
 
@@ -1889,12 +1950,16 @@ defmodule MuseumCaperWeb.GameLive do
     end
   end
 
-  defp removable_setup_piece(state, pos) do
-    cond do
-      Map.has_key?(state.paintings, pos) -> :painting
-      camera_at?(state, pos) -> :camera
-      true -> nil
-    end
+  defp removable_setup_piece(%{setup_step: :paintings} = state, pos) do
+    if Map.has_key?(state.paintings, pos), do: :painting
+  end
+
+  defp removable_setup_piece(%{setup_step: :cameras} = state, pos) do
+    if camera_at?(state, pos), do: :camera
+  end
+
+  defp removable_setup_piece(_state, _pos) do
+    nil
   end
 
   defp place_setup_piece(socket, %{setup_step: :paintings}, pos) do
@@ -2476,8 +2541,8 @@ defmodule MuseumCaperWeb.GameLive do
   defp detective_result_message({:look_camera, {:sighting, camera_id}}),
     do: camera_sighting_message(camera_id)
 
-  defp detective_result_message({:look_camera, :camera_disabled}),
-    do: "That camera was disabled."
+  defp detective_result_message({:look_camera, {:camera_disabled, camera_id}}),
+    do: camera_disabled_message(camera_id)
 
   defp detective_result_message({:look_camera, :power_off}),
     do: "The power is off, so cameras cannot see."
@@ -2509,7 +2574,12 @@ defmodule MuseumCaperWeb.GameLive do
   defp detective_result_message({:escape_locked, entry_id}),
     do: "The thief checked the #{entry_label(entry_id)} lock. It was locked."
 
+  defp detective_result_message({:artwork_stolen, label}),
+    do: "Artwork #{label} stolen."
+
   defp camera_sighting_message(camera_id), do: "#{camera_names([camera_id])} spotted the thief."
+
+  defp camera_disabled_message(camera_id), do: "#{camera_names([camera_id])} was disabled."
 
   defp camera_no_sighting_message(camera_id), do: "Camera #{camera_id} cannot see the thief."
 

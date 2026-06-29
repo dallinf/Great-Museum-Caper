@@ -42,7 +42,7 @@ defmodule MuseumCaper.Game.Rules do
 
   def place_painting(_state, _pos), do: {:error, :invalid_phase}
 
-  def remove_painting(%State{phase: :setup} = state, pos) do
+  def remove_painting(%State{setup_step: :paintings} = state, pos) do
     if Map.has_key?(state.paintings, pos) do
       {:ok,
        %{
@@ -134,7 +134,7 @@ defmodule MuseumCaper.Game.Rules do
 
   def place_camera(_state, _camera_id, _pos), do: {:error, :invalid_phase}
 
-  def remove_camera_at(%State{phase: :setup} = state, pos) do
+  def remove_camera_at(%State{setup_step: :cameras} = state, pos) do
     case Enum.find(state.cameras, fn {_id, camera} -> camera != nil and camera.pos == pos end) do
       {camera_id, _camera} ->
         {:ok, %{state | cameras: Map.put(state.cameras, camera_id, nil), setup_step: :cameras}}
@@ -236,7 +236,6 @@ defmodule MuseumCaper.Game.Rules do
 
       if destination in valid do
         state = move_player(state, :thief, state.thief_player_id, destination, 3, MapSet.new())
-        state = resolve_thief_landing(state)
         {:ok, state}
       else
         {:error, :invalid_move}
@@ -246,12 +245,14 @@ defmodule MuseumCaper.Game.Rules do
     end
   end
 
-  defp resolve_thief_landing(state) do
+  defp resolve_thief_landing(%{current_turn: current_turn, thief_player_id: current_turn} = state) do
     pos = state.thief_position
     state = check_camera(state, pos)
     state = check_painting(state, pos)
     state
   end
+
+  defp resolve_thief_landing(state), do: state
 
   defp check_camera(state, pos) do
     case Enum.find(state.cameras, fn {_, v} -> v && v.pos == pos && v.status == :active end) do
@@ -263,7 +264,7 @@ defmodule MuseumCaper.Game.Rules do
           "Camera #{id}",
           pos,
           :disabled,
-          "Camera #{id} was disabled."
+          "C#{id} was disabled."
         )
 
       nil ->
@@ -308,6 +309,7 @@ defmodule MuseumCaper.Game.Rules do
       result: :stolen,
       label: "#{player_name(state, state.thief_player_id)} stole #{label}."
     })
+    |> put_detective_result({:artwork_stolen, label})
   end
 
   # --- Detective Movement ---
@@ -583,6 +585,7 @@ defmodule MuseumCaper.Game.Rules do
         state =
           state
           |> resolve_power_room_turn_end()
+          |> resolve_thief_landing()
           |> commit_thief_movement()
 
         if detective_caught_thief?(state) do
@@ -807,14 +810,22 @@ defmodule MuseumCaper.Game.Rules do
     |> Map.new(fn {player_id, index} ->
       player = players[player_id]
       role = if player_id == thief_id, do: :thief, else: :detective
-      color = round_player_color(role, index)
+      color = round_player_color(role, index, player)
       {player_id, %{player | role: role, color: color}}
     end)
   end
 
-  defp round_player_color(:thief, _index), do: :grey
+  defp round_player_color(:thief, _index, _player), do: :grey
 
-  defp round_player_color(:detective, index) do
+  defp round_player_color(:detective, _index, %{detective_color: color})
+       when color != nil and color != :grey,
+       do: color
+
+  defp round_player_color(:detective, _index, %{role: :detective, color: color})
+       when color != nil and color != :grey,
+       do: color
+
+  defp round_player_color(:detective, index, _player) do
     PawnColors.all()
     |> Enum.at(index - 1, PawnColors.default())
   end
@@ -997,7 +1008,7 @@ defmodule MuseumCaper.Game.Rules do
 
       cond do
         cam == nil ->
-          state = put_detective_result(state, {:look_camera, :camera_disabled})
+          state = put_detective_result(state, {:look_camera, {:camera_disabled, camera_id}})
 
           {:ok, :camera_disabled, state}
 
@@ -1005,7 +1016,7 @@ defmodule MuseumCaper.Game.Rules do
           state =
             state
             |> Map.put(:cameras, Map.put(state.cameras, camera_id, Map.put(cam, :revealed, true)))
-            |> put_detective_result({:look_camera, :camera_disabled})
+            |> put_detective_result({:look_camera, {:camera_disabled, camera_id}})
 
           {:ok, :camera_disabled, state}
 
@@ -1096,11 +1107,16 @@ defmodule MuseumCaper.Game.Rules do
   end
 
   defp spot_thief(state, detective_result) do
+    previous_result_id = state.detective_result_id
     state = reveal_pending_steal_on_spot(state)
 
-    state
-    |> Map.put(:chase_mode, true)
-    |> put_detective_result(detective_result)
+    state = Map.put(state, :chase_mode, true)
+
+    if state.detective_result_id == previous_result_id do
+      put_detective_result(state, detective_result)
+    else
+      state
+    end
   end
 
   defp reveal_pending_steal_on_spot(%{pending_steal: pos, thief_position: pos} = state) do
