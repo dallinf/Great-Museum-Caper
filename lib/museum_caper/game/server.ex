@@ -255,7 +255,10 @@ defmodule MuseumCaper.Game.Server do
 
       already_joined? ->
         with {:ok, color} <- resolve_player_color(game_state, player_id, color) do
-          player = %{game_state.players[player_id] | name: name, color: color}
+          player =
+            game_state.players[player_id]
+            |> Map.merge(%{name: name, color: color, detective_color: color})
+
           {:ok, %{game_state | players: Map.put(game_state.players, player_id, player)}}
         end
 
@@ -264,7 +267,8 @@ defmodule MuseumCaper.Game.Server do
           player = %{
             name: name,
             role: :unassigned,
-            color: color
+            color: color,
+            detective_color: color
           }
 
           {:ok,
@@ -313,8 +317,15 @@ defmodule MuseumCaper.Game.Server do
           |> Map.new(fn {assigned_player_id, index} ->
             role = if index == 0, do: :thief, else: :detective
             player = game_state.players[assigned_player_id]
+            detective_color = Map.get(player, :detective_color, player.color)
             color = if role == :thief, do: :grey, else: player.color
-            {assigned_player_id, %{player | role: role, color: color}}
+
+            {assigned_player_id,
+             Map.merge(player, %{
+               role: role,
+               color: color,
+               detective_color: detective_color
+             })}
           end)
 
         {:ok,

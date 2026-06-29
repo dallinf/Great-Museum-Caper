@@ -184,6 +184,24 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(view, "#player-list", "Cora")
   end
 
+  test "existing player can rejoin a started game with their browser player id", %{
+    conn: conn,
+    game_id: game_id
+  } do
+    {:ok, _pid} = MuseumCaper.Game.Server.start_link(game_id: game_id, players: @setup_players)
+
+    {:ok, view, _html} = live(conn, "/game/#{game_id}?player_id=player-alice")
+
+    refute has_element?(view, "#join-closed-panel")
+    refute has_element?(view, "#join-panel")
+    assert has_element?(view, "#player-list", "Alice")
+
+    assert has_element?(
+             view,
+             "#player-claim[phx-hook='PlayerClaimHook'][data-game-id='#{game_id}'][data-player-id='player-alice'][data-player-name='Alice'][data-player-color='red']"
+           )
+  end
+
   test "host cannot start until at least two players have joined", %{
     conn: conn,
     game_id: game_id
@@ -903,6 +921,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
     assert has_element?(thief_view, "#end-turn-button[disabled]", "Move first")
     refute has_element?(thief_view, "#end-turn-button:not([disabled])")
     refute has_element?(thief_view, "#end-turn-button[disabled].bg-amber-300")
+    refute has_element?(thief_view, "#end-turn-button.end-turn-ready-pulse")
 
     render_click(element(thief_view, "#cell-6-3"))
 
@@ -914,7 +933,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              thief_view,
-             "#end-turn-button:not([disabled]).bg-amber-300.text-stone-950.shadow-lg"
+             "#end-turn-button:not([disabled]).end-turn-ready-pulse.bg-amber-300.text-stone-950.shadow-lg"
            )
 
     refute has_element?(thief_view, "#game-notification", "Move recorded.")
@@ -971,7 +990,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
            )
   end
 
-  test "next player sees a large turn banner when their turn starts", %{
+  test "next player sees a compact top turn banner when their turn starts", %{
     conn: conn,
     game_id: game_id
   } do
@@ -992,13 +1011,13 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              alice_view,
-             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='3000'][data-turn-banner-chime='loud']",
+             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='2200'][data-turn-banner-chime='loud'].top-3.items-start",
              "Your Turn"
            )
 
     assert has_element?(
              alice_view,
-             "#turn-banner [data-turn-banner-panel][data-turn-banner-size='massive']",
+             "#turn-banner [data-turn-banner-panel][data-turn-banner-size='compact']",
              "Your Turn"
            )
 
@@ -1033,7 +1052,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
 
     assert has_element?(
              thief_view,
-             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='3000'][data-turn-banner-chime='loud']",
+             "#turn-banner[phx-hook='TurnBannerHook'][data-turn-banner-duration='2200'][data-turn-banner-chime='loud'].top-3.items-start",
              "Your Turn"
            )
 
@@ -1249,7 +1268,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
              "C2"
            )
 
-    assert_result_surface(alice_view, "That camera was disabled.")
+    assert_result_surface(alice_view, "C2 was disabled.")
 
     set_detective_turn!(pid, {4, :eye})
     {:ok, next_alice_view, _html} = live(conn, "/game/#{game_id}?player_name=Alice")
@@ -3058,8 +3077,8 @@ defmodule MuseumCaperWeb.GameLiveTest do
     render_click(element(thief_view, "#cell-3-7"))
 
     state = GameServer.get_state(pid)
-    assert state.pending_steal == {3, 7}
-    assert state.paintings[{3, 7}] == :targeted
+    assert state.pending_steal == nil
+    assert state.paintings[{3, 7}] == :present
     refute has_element?(alice_view, "#game-log")
     refute has_element?(alice_view, "#game-log-toast", "Artwork A4 stolen.")
 
@@ -3075,7 +3094,7 @@ defmodule MuseumCaperWeb.GameLiveTest do
              "A4*"
            )
 
-    assert has_element?(
+    refute has_element?(
              thief_view,
              "#cell-3-7 [data-board-mark='painting'][data-mark-status='targeted'].board-object-mark.board-object-mark-artwork.board-object-mark-targeted",
              "A4*"
@@ -3096,6 +3115,12 @@ defmodule MuseumCaperWeb.GameLiveTest do
     refute has_element?(
              alice_view,
              "#cell-3-7 [data-board-mark='painting'][data-mark-status='targeted']",
+             "A4*"
+           )
+
+    assert has_element?(
+             thief_view,
+             "#cell-3-7 [data-board-mark='painting'][data-mark-status='targeted'].board-object-mark.board-object-mark-artwork.board-object-mark-targeted",
              "A4*"
            )
 
@@ -3126,7 +3151,13 @@ defmodule MuseumCaperWeb.GameLiveTest do
              "A4"
            )
 
-    assert has_element?(alice_view, "#artwork-reveal-toast", "Artwork A4 stolen.")
+    assert has_element?(
+             alice_view,
+             "#artwork-reveal-toast[data-toast-duration='9000'][class*='p-4'][class*='text-base'][class*='md:p-5'][class*='md:text-lg'][class*='lg:p-6'][class*='lg:text-xl']",
+             "Artwork A4 stolen."
+           )
+
+    assert_result_surface(alice_view, "Artwork A4 stolen.")
     refute has_element?(thief_view, "#artwork-reveal-toast", "Artwork A4 stolen.")
     refute has_element?(alice_view, "#game-log")
     refute has_element?(alice_view, "#game-log-toast", "Artwork A4 stolen.")
@@ -3204,7 +3235,13 @@ defmodule MuseumCaperWeb.GameLiveTest do
              "#cell-3-8 [data-board-mark='thief'][data-mark-status='gray'].size-3\\.5.md\\:size-5.lg\\:size-6"
            )
 
-    assert has_element?(alice_view, "#artwork-reveal-toast", "Artwork A7 stolen.")
+    assert has_element?(
+             alice_view,
+             "#artwork-reveal-toast[data-toast-duration='9000'][class*='p-4'][class*='text-base'][class*='md:p-5'][class*='md:text-lg'][class*='lg:p-6'][class*='lg:text-xl']",
+             "Artwork A7 stolen."
+           )
+
+    assert_result_surface(alice_view, "Artwork A7 stolen.")
     refute has_element?(alice_view, "#game-log")
     refute has_element?(alice_view, "#game-log-toast", "Artwork A7 stolen.")
     refute has_element?(alice_view, "#app-menu #menu-game-log")
@@ -3437,9 +3474,16 @@ defmodule MuseumCaperWeb.GameLiveTest do
   end
 
   defp assert_result_surface(view, message) do
-    refute has_element?(view, "#detective-result-panel")
-    assert has_element?(view, "#game-result-toast", message)
-    assert has_element?(view, "#app-menu #menu-detective-result", message)
+    assert has_element?(view, "#turn-panel #detective-result-panel", message)
+    refute has_element?(view, "#turn-panel #detective-result-panel h2", "Recent result")
+
+    assert has_element?(
+             view,
+             "#game-result-toast[data-toast-duration='9000'][class*='p-4'][class*='text-base'][class*='md:p-5'][class*='md:text-lg'][class*='lg:p-6'][class*='lg:text-xl']",
+             message
+           )
+
+    refute has_element?(view, "#app-menu #menu-detective-result")
   end
 
   defp result_toast_key(view) do

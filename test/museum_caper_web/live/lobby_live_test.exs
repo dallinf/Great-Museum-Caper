@@ -62,12 +62,17 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
   test "create room redirects on success", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/")
 
-    assert {:error, {:live_redirect, %{to: "/game/" <> _}}} =
+    assert {:error, {:live_redirect, %{to: "/game/" <> _ = to}}} =
              view
              |> form("#create-room-form", %{
                room: %{name: "Test Room", player_name: "Alice", player_color: "purple"}
              })
              |> render_submit()
+
+    params = redirected_query_params(to)
+    assert params["player_name"] == "Alice"
+    assert params["player_color"] == "purple"
+    assert params["player_id"] =~ ~r/^player-alice-[A-Za-z0-9_-]+$/
   end
 
   test "renders newest rooms first", %{conn: conn} do
@@ -132,6 +137,9 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
 
     assert to =~ "player_name=Bob"
     assert to =~ "player_color=green"
+
+    params = redirected_query_params(to)
+    assert params["player_id"] =~ ~r/^player-bob-[A-Za-z0-9_-]+$/
   end
 
   test "join room form keeps typed values when another player joins", %{conn: conn} do
@@ -203,6 +211,20 @@ defmodule MuseumCaperWeb.LobbyLiveTest do
 
     assert has_element?(lobby_view, "#room-#{game_id}", "setup")
     assert has_element?(lobby_view, "#room-#{game_id} [data-room-status='locked']", "In progress")
+
+    assert has_element?(
+             lobby_view,
+             "#rejoin-#{game_id}.hidden[data-rejoin-link][data-game-id='#{game_id}'][data-room-player-ids~='player-alice']",
+             "Rejoin"
+           )
+
     refute has_element?(lobby_view, "#show-join-#{game_id}")
+  end
+
+  defp redirected_query_params(path) do
+    path
+    |> URI.parse()
+    |> Map.fetch!(:query)
+    |> URI.decode_query()
   end
 end

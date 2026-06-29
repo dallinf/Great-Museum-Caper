@@ -92,6 +92,7 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       {:ok, :chase_triggered, new_state} = Rules.use_eye_action(pending_steal_state(), "d1")
 
       assert_steal_revealed(new_state)
+      assert new_state.detective_result == {:artwork_stolen, "A5"}
     end
 
     test "turns power on when looking from a detective on the power room" do
@@ -117,6 +118,7 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       {:ok, :camera_disabled, new_state} = Rules.use_eye_on_camera(state, "d1", 3)
       assert new_state.cameras[3].status == :disabled
       assert new_state.cameras[3].revealed
+      assert new_state.detective_result == {:look_camera, {:camera_disabled, 3}}
     end
 
     test "returns :no_sighting when active camera can't see thief" do
@@ -317,6 +319,19 @@ defmodule MuseumCaper.Game.RulesActionsTest do
       state = %{base_state() | power_active: false}
       {:ok, :power_off, new_state} = Rules.use_motion_detector(state)
       assert new_state.power_revealed
+    end
+  end
+
+  describe "resolve_pending_steal/1" do
+    test "stores stolen artwork as the latest detective result" do
+      new_state = Rules.resolve_pending_steal(pending_steal_state())
+
+      assert new_state.pending_steal == nil
+      assert new_state.paintings[{4, 7}] == :removed
+      assert new_state.stolen_count == 1
+      assert "Artwork A5 stolen." in new_state.game_log
+      assert new_state.detective_result == {:artwork_stolen, "A5"}
+      assert new_state.detective_result_id == pending_steal_state().detective_result_id + 1
     end
   end
 
