@@ -96,9 +96,17 @@ export const playerClaimForRoom = (
   return claim;
 };
 
-export const rejoinPath = (gameId, playerId) => {
-  const params = new URLSearchParams({player_id: playerId});
-  return `/game/${encodeURIComponent(gameId)}?${params.toString()}`;
+export const rejoinPath = (gameId, playerId, {basePath} = {}) => {
+  const path = cleanString(basePath) || `/game/${encodeURIComponent(gameId)}`;
+  const [pathWithQuery, hash] = path.split("#", 2);
+  const queryStart = pathWithQuery.indexOf("?");
+  const pathname = queryStart === -1 ? pathWithQuery : pathWithQuery.slice(0, queryStart);
+  const query = queryStart === -1 ? "" : pathWithQuery.slice(queryStart + 1);
+  const params = new URLSearchParams(query);
+
+  params.set("player_id", playerId);
+
+  return `${pathname}?${params.toString()}${hash ? `#${hash}` : ""}`;
 };
 
 export const roomPlayerIds = value =>
@@ -120,7 +128,9 @@ export const applyRejoinLinks = (
     );
 
     if (claim) {
-      link.href = rejoinPath(claim.gameId, claim.playerId);
+      link.href = rejoinPath(claim.gameId, claim.playerId, {
+        basePath: link.getAttribute("href") || link.href,
+      });
       link.dataset.rejoinPlayerId = claim.playerId;
       link.classList.remove("hidden");
     } else {

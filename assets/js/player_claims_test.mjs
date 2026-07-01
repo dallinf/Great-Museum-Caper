@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyRejoinLinks,
   playerClaimForRoom,
   playerClaimKey,
   readPlayerClaim,
@@ -74,4 +75,50 @@ test("rejoinPath links directly to the claimed player id", () => {
     rejoinPath("game-1", "player-alice-secret"),
     "/game/game-1?player_id=player-alice-secret"
   );
+});
+
+test("rejoinPath preserves the Phoenix-generated base path", () => {
+  assert.equal(
+    rejoinPath("game-1", "player-alice-secret", {
+      basePath: "/museum_caper/game/game-1",
+    }),
+    "/museum_caper/game/game-1?player_id=player-alice-secret"
+  );
+});
+
+test("applyRejoinLinks keeps the Phoenix-generated rejoin href prefix", () => {
+  const storage = memoryStorage();
+  writePlayerClaim({gameId: "game-1", playerId: "player-alice-secret"}, {storage});
+
+  const removedClasses = [];
+  const link = {
+    dataset: {
+      gameId: "game-1",
+      roomPlayerIds: "player-alice-secret",
+    },
+    href: "/museum_caper/game/game-1",
+    getAttribute(name) {
+      return name === "href" ? this.href : null;
+    },
+    classList: {
+      remove(name) {
+        removedClasses.push(name);
+      },
+      add() {},
+    },
+  };
+
+  applyRejoinLinks(
+    {
+      querySelectorAll(selector) {
+        assert.equal(selector, "[data-rejoin-link]");
+        return [link];
+      },
+    },
+    {storage}
+  );
+
+  assert.equal(link.href, "/museum_caper/game/game-1?player_id=player-alice-secret");
+  assert.equal(link.dataset.rejoinPlayerId, "player-alice-secret");
+  assert.deepEqual(removedClasses, ["hidden"]);
 });
